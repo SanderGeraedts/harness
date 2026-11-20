@@ -113,3 +113,13 @@ One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
   instead of failing.
 - 2026-11-20 developer: merged `main` with T-0005 (0.2.0) into the branch and set the
   version to 0.3.0, the version that will carry `create`; the tag is the tester's.
+- 2026-11-20 developer: live run of `harness create` into a private throwaway repository,
+  with the branch's commit as `--harness-ref`: created, pushed, first CI run green
+  (`checks / checks`, with the end-to-end tests). A draft pull request with a trivial
+  change stayed open while it was a draft and, marked ready, was merged by the auto-merge
+  workflow after its CI run. The ruleset could not be made: GitHub refused it for a private
+  repository on the account's plan (HTTP 403).
+- 2026-11-20 developer: Remaining: the tester's run and the tag `v0.3.0`. For the Engineer:
+  whether new repositories stay private by default now that a private one can't get a
+  ruleset on a free plan; and deleting the throwaway repository, which only the Engineer
+  does.
