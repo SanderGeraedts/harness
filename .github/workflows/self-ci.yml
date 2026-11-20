@@ -1,0 +1,26 @@
+# The harness's own CI (G-0015): the unit tests, then the self-test, which packs the
+# harness, installs it into a throwaway project and runs its commands there. It goes
+# through the reusable CI workflow, so that is tested too.
+name: Harness CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: harness-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+    with:
+      harness: node bin/harness.mjs
+      checks: |
+        pnpm test
+        pnpm run self-test

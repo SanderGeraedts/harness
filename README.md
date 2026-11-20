@@ -1,2 +1,199 @@
 # harness
-An AI-first way of working: decisions, tasks, an agent team and workflows that projects install
+
+An AI-first way of working that projects install: a registry of global decisions, rules for
+agents, a team of four agents, scripts, and reusable GitHub workflows for CI and auto-merge.
+
+Agents write the code. They work from recorded decisions and from tasks with a check, every
+change goes through a pull request, and a green pull request that a tester has passed merges
+itself. Humans decide what can't be undone or costs money.
+
+## What is in it
+
+| Folder | What |
+| --- | --- |
+| [decisions/](decisions/index.md) | the global decisions (`G-NNNN`) that hold in every project, unless the project overrules one |
+| [rules/AGENTS.md](rules/AGENTS.md) | the rules every agent reads in a project |
+| [agents/](agents/) | the team: architect, UX designer, developer, tester (Claude Code subagents) |
+| [templates/](templates/) | decision, question, task and lessons templates, and a project's thin `AGENTS.md` and `CLAUDE.md` |
+| `bin/`, `lib/` | the `harness` command |
+| [.github/workflows/](.github/workflows/) | reusable `ci.yml` and `auto-merge.yml` |
+
+## Roles
+
+- **Engineer:** makes the architectural decisions that need a human. Listed by GitHub login
+  in the project's `.harness/engineers`.
+- **Requester:** anyone else. Asks the team for changes in plain language, and is never
+  asked engineering questions.
+
+`harness role` prints which one the signed-in GitHub account is.
+
+## The team
+
+Every task goes through a pipeline, and each role writes its result in the task file:
+
+1. **Architect:** turns the request into a task with a check, names the decisions it
+   follows, records new decisions, raises questions for the Engineer.
+2. **UX designer:** designs anything a user sees before it is built, and reviews it after.
+3. **Developer:** builds it in a draft pull request.
+4. **Tester:** runs the check independently, tries to break it, and only then marks the pull
+   request ready. Drafts never merge, so nothing merges untested.
+
+## Install in a project
+
+The project is an existing git repository with a `package.json`, using pnpm.
+
+```sh
+pnpm add -D github:SanderGeraedts/harness#v0.1.0
+pnpm exec harness init <engineer-github-login>...
+pnpm exec harness check
+```
+
+`init` creates the registries (`docs/decisions/`, `docs/tasks/`), `.harness/engineers`,
+`docs/lessons.md`, a thin `AGENTS.md` and `CLAUDE.md` that point into
+`node_modules/@sandergeraedts/harness/`, an `.nvmrc`, and the `preinstall` (pnpm only) and
+`prepare` (git hooks) scripts. It never overwrites a file the project already has: in a
+project with its own `AGENTS.md`, add the pointers from
+[templates/AGENTS.md](templates/AGENTS.md) by hand. Then it runs `sync`. Pass
+`--default-branch <name>` when the default branch isn't `main`.
+
+Add two workflows, pinned to the same tag as the dependency.
+
+`.github/workflows/ci.yml`:
+
+```yaml
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    uses: SanderGeraedts/harness/.github/workflows/ci.yml@v0.1.0
+    # with:
+    #   checks: |
+    #     pnpm run typecheck
+    #     pnpm test
+    #     pnpm run build
+    #   e2e: pnpm run test:e2e
+```
+
+`.github/workflows/auto-merge.yml`:
+
+```yaml
+name: Auto-merge
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  merge:
+    uses: SanderGeraedts/harness/.github/workflows/auto-merge.yml@v0.1.0
+    # with:
+    #   backend-workflow: backend.yml
+    #   backend-paths: '^(backend/|\.github/workflows/backend\.yml)'
+```
+
+The CI workflow installs with pnpm, runs `harness check`, then the project's own checks (by
+default the `typecheck`, `test` and `build` scripts that exist). A project may add jobs of
+its own next to `checks`; the pull request merges when the whole workflow is green.
+
+The auto-merge workflow merges a green pull request into the default branch when it isn't a
+draft. With `backend-workflow` and `backend-paths` it starts that workflow after merging a
+pull request that touched those paths, because a merge made with `GITHUB_TOKEN` starts no
+push workflows. With `hold-paths` it labels a pull request that touches those paths as
+waiting for the Engineer instead of merging it.
+
+Once CI has run, protect the default branch. Agents do this themselves (G-0025). The check
+name is the caller's job name, then the reusable workflow's:
+
+```sh
+pnpm exec harness protect "checks / checks"
+gh api repos/{owner}/{repo}/rules/branches/main
+```
+
+The auto-merge workflow still merges under the ruleset: it merges through the API, and only
+when the checks passed.
+
+## Update
+
+```sh
+pnpm add -D github:SanderGeraedts/harness#v0.2.0
+pnpm exec harness sync
+pnpm exec harness changes v0.1.0 v0.2.0
+```
+
+Bump the tag in both workflows in the same pull request, and put the output of `changes` in
+its description: the global decisions that were added, changed or replaced. Per decision the
+project's architect opens a task to conform or records an overruling decision.
+
+`changes` reads the installed copy (each global decision carries the version that added it
+in `since` and the version that replaced or redacted it in `changed`), so run it after
+installing the new version.
+
+## Commands
+
+Run from the project root with `pnpm exec harness <command>`.
+
+| Command | What it does |
+| --- | --- |
+| `role` | prints `engineer` or `requester`: is the signed-in GitHub account (`gh api user`) in `.harness/engineers`? `requester` when the file or `gh` is missing |
+| `check` | what CI checks: the task index is in step, the decision index lists every record and nothing else, front matter is valid, every `overrules` names an existing global decision, the Engineers are listed, and the generated files are current |
+| `tasks-index [--check] [dir]` | writes `docs/tasks/index.md` from the task files, or checks it |
+| `overrules` | lists the project decisions that overrule global ones |
+| `changes <fromTag> [toTag]` | lists the global decisions added, changed or replaced after `fromTag`, up to `toTag` (default: the installed version) |
+| `waiting [dir...]` | lists what waits on a human, for one or several project folders: open questions, tasks' `Remaining:` lines, and open GitHub issues that are assigned. Skips issues when `gh` is missing |
+| `sync` | writes or refreshes the generated files: `.claude/agents/*.md`, `.githooks/pre-push`, the push and `--confirmed` rules in `.claude/settings.json` (merged into the project's own), the registry README and the templates |
+| `init [login...]` | sets an existing repository up, then runs `sync` |
+| `hooks` | points git at `.githooks`; the project's `prepare` script |
+| `protect <check>... [--repo owner/name] [--dry-run]` | creates or updates the ruleset on the default branch through `gh api`: a pull request with 0 approvals, the named checks required (as reported by GitHub Actions), no deletion, no force-push, no bypass actors. Found again by its name, so it is safe to repeat |
+| `nas <method> [params-json] [--job] [--confirmed]` | calls the TrueNAS API; see below |
+
+## The NAS tool
+
+`harness nas` calls the TrueNAS API over the LAN as the agents' own admin user. It reads
+`TRUENAS_HOST`, `TRUENAS_API_KEY` and `TRUENAS_CERT_SHA256` from the environment, which
+exist only on the Engineer's machine, and sends the key only after the NAS's certificate
+matches the pinned fingerprint.
+
+```sh
+pnpm exec harness nas --fingerprint          # print the certificate's fingerprint, to pin it
+pnpm exec harness nas system.info
+pnpm exec harness nas app.redeploy '["<app>"]' --job
+pnpm exec harness nas pool.snapshot.create '[{"dataset":"<dataset>","name":"before-<change>"}]'
+```
+
+Destructive methods (deleting or overwriting data, datasets, disks and apps; rolling back,
+deleting or cloning snapshots; users, keys, certificates, sign-in and network; reboot,
+shutdown and OS updates) refuse to run without `--confirmed`, and Claude Code asks a human
+before any command that carries it. Creating a snapshot is not destructive.
+
+One-time setup, by the Engineer: create a TrueNAS user for the agents with full admin, no
+password and no SSH; give it an API key; run `--fingerprint` and compare the result with the
+certificate the TrueNAS UI shows; store the host, the key and the fingerprint as user
+environment variables. To revoke, delete the key in the TrueNAS UI.
+
+## Working on the harness
+
+See [AGENTS.md](AGENTS.md). `pnpm test` runs the unit tests; `pnpm run self-test` packs the
+harness, installs it into a throwaway project and runs its commands there.
+
+## Licence
+
+MIT.

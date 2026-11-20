@@ -1,0 +1,36 @@
+{
+  "name": "@sandergeraedts/harness",
+  "version": "0.1.0",
+  "description": "An AI-first way of working: decisions, tasks, an agent team and workflows that projects install",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SanderGeraedts/harness.git"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "harness": "bin/harness.mjs"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "decisions",
+    "rules",
+    "agents",
+    "templates",
+    "hooks"
+  ],
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\"",
+    "self-test": "node scripts/self-test.mjs",
+    "check": "node bin/harness.mjs check",
+    "tasks:index": "node bin/harness.mjs tasks-index"
+  },
+  "dependencies": {
+    "ws": "^8.23.0"
+  },
+  "packageManager": "pnpm@12.18.0"
+}
