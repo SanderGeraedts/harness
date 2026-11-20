@@ -68,8 +68,21 @@ with a title, a note and a status. Phone first, one column, at most 42rem wide.
   card, field), in the device's colour scheme. Not in production builds.
 - **Words:** all in one file, in English; another language is the new project's own task.
 
-Review after building: checked on a phone-sized screen in light and dark. The four screens
-match the above; contrast of the default accent with its text is 4.6:1.
+- **Long text:** no screen is ever wider than the phone. A title wraps, and a word longer
+  than the screen breaks; on a card the note is one line, cut off with an ellipsis; the
+  badge and the buttons keep their size.
+
+Review after building (first): checked at 412px in light and dark with the demo data only.
+That missed that the list grew wider than the screen with a longer note, which the tester
+found.
+
+Review after the fix: looked at the list, an item, the edit form and `/design` at 320px in
+light and dark, with the serif font, a 102-character title without a space and a note
+longer than the screen. Nothing scrolls sideways. On the card the long title wraps beside
+the badge and the note shows its first line only, with an ellipsis; on the item page the
+title wraps under its accent bar and the badge moves below it; the band reads "Demo data ·
+sync is off". One thing left as it is: in the edit form's back link, a title without any
+space drops below the arrow. Contrast of the default accent with its text is 4.6:1.
 
 # Test
 
@@ -331,3 +344,20 @@ One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
   passed; six smaller findings are listed there. Back to the developer; the pull request
   stays a draft and there is no tag yet. Still for the Engineer: the two points in the line
   above.
+- 2026-11-20 developer: fixed after the tester sent it back. The template: the list is one
+  column that can't grow past the screen, long words break everywhere, a card shows the
+  first line of the note, the band has no "(local)", and two new end-to-end tests: at 320px
+  and 412px, with a long note and a long unbroken title, no screen (item, edit form, list,
+  new form, `/design`) is wider than the phone, and a card shows only the note's first
+  line. On the old layout the width test fails for the item page (4801px), the edit form
+  (2399px) and the list (4006px). `create`: `$` patterns in the title or purpose stay plain
+  text in `AGENTS.md`; a run that fails before the first commit removes what it made;
+  Engineers are listed once; `--git-name` and `--git-email` set the first commit's author
+  and the new repository's identity; run inside a repository, the default folder is next to
+  that repository, not in it. Each with a unit test; the self-test uses the identity flags.
+- 2026-11-20 ux-designer: reviewed the built screens again at 320px, in light and dark, with
+  long text (under *Design*): they match the design; the long-text rule is added to it.
+- 2026-11-20 developer: Remaining: the tester's second run and the tag `v0.3.0`. For the
+  Engineer: whether new repositories stay private by default now that a private one can't
+  get a ruleset on a free plan; whether the ruleset should also require `template-e2e`; and
+  deleting the throwaway repository of the live run.

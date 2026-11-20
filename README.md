@@ -233,12 +233,15 @@ pnpm exec harness create my-project \
   --accent "#2f6fed" --font system --language en
 ```
 
+Run inside a git repository, as here, it puts the new project next to that repository
+(`../my-project`, seen from its root) and never inside it. `--dir` says where else.
+
 In a terminal it asks for the purpose, the look and the language that weren't given as
 flags; elsewhere the flags are all there is, and only `--purpose` is required.
 
 | Option | What |
 | --- | --- |
-| `--dir <path>` | where to create it; default `./<name>` |
+| `--dir <path>` | where to create it. Default: `./<name>`, or, when run inside a git repository, `<name>` next to that repository's root |
 | `--title <text>` | the name people see; default made from the name (`my-project` gives "My project") |
 | `--purpose <text>` | what the project is for; recorded as its first decision |
 | `--accent <#rrggbb>` | the accent colour; default `#2f6fed`. The text colour on it is worked out for contrast |
@@ -246,6 +249,7 @@ flags; elsewhere the flags are all there is, and only `--purpose` is required.
 | `--language <code>` | the interface language, such as `en` or `nl`; default `en` |
 | `--engineer <login>` | a GitHub login of an Engineer of the new project; repeat for more |
 | `--private`, `--public` | the repository's visibility; default private |
+| `--git-name <name>`, `--git-email <address>` | the author of the first commit, also set as the new repository's own `user.name` and `user.email`. Default: whatever git is configured with on this machine |
 | `--no-github` | stop after the first local commit |
 | `--harness-ref <ref>` | the harness tag, branch or commit to install and to pin the workflows to; default the tag of the harness that runs the command |
 | `--harness-package <spec>` | install the harness from this package spec instead; for tests |
@@ -267,7 +271,9 @@ What it does, in order:
 3. Records the first decisions (`D-0001` purpose, `D-0002` local-first and ready to sync,
    `D-0003` look, `D-0004` language, `D-0005` slug addresses) and the first tasks, and runs
    `harness check`.
-4. Makes the first commit on `main`. With `--no-github` it stops here.
+4. Makes the first commit on `main`. With `--no-github` it stops here. A run that fails
+   before this point removes what it put in the folder, so the same command can be run
+   again.
 5. Creates the repository under the signed-in account and pushes. This is the one push to
    the default branch a project ever gets: the first commit of an empty repository, before
    a ruleset can exist (G-0025). The project's own pre-push hook is not used for it.
@@ -279,6 +285,10 @@ The push carries workflow files, so `gh`'s token needs the `workflow` scope
 no repository of that name exists, before it writes anything. If a run stops after creating
 the repository, remove the local folder and run it again: an empty repository of that name
 with the same visibility is used instead of refused.
+
+The first commit carries a name and an e-mail address, and the push sends them to GitHub.
+Without `--git-name` and `--git-email` they are the machine's git defaults; give the flags
+when those are not the ones the new repository should show.
 
 GitHub offers rulesets on public repositories, and on private ones only on a paid plan.
 Where it refuses, the project is still created and its CI runs, and the command ends with a

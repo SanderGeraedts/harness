@@ -270,19 +270,21 @@ try {
   step('harness create --no-github makes a project from the template');
   // The installed copy, told who is signed in: CI has no gh account to be the Engineer.
   const created = join(work, 'spun-up');
-  const createArgs = ['spun-up', '--purpose', 'Try the template.', '--engineer', 'engineer-one', '--accent', '#aa3366', '--language', 'nl', '--no-github', '--harness-package', join(work, tarball)];
+  const createArgs = ['spun-up', '--purpose', 'Try the template.', '--engineer', 'engineer-one', '--accent', '#aa3366', '--language', 'nl', '--no-github', '--git-name', 'Self-test', '--git-email', 'self-test@example.invalid', '--harness-package', join(work, tarball)];
   writeFileSync(
     join(work, 'create.mjs'),
     `import { main } from ${JSON.stringify(pathToFileURL(join(installed, 'lib', 'create.mjs')).href)};\nprocess.exitCode = await main(${JSON.stringify(createArgs)}, process.cwd(), { getLogin: () => 'engineer-one', interactive: false });\n`,
   );
-  const identity = { GIT_AUTHOR_NAME: 'Self-test', GIT_AUTHOR_EMAIL: 'self-test@example.invalid', GIT_COMMITTER_NAME: 'Self-test', GIT_COMMITTER_EMAIL: 'self-test@example.invalid' };
-  const createOut = ok(`"${process.execPath}" create.mjs`, { cwd: work, env: identity });
+  const createOut = ok(`"${process.execPath}" create.mjs`, { cwd: work });
   for (const line of [/✓ tasks: 3 tasks, index in step/, /✓ decisions: 5 records, index complete/, /✓ engineers: 1 listed/, /✓ generated files: current/, /✓ first commit on main/, /Stopped before GitHub/])
     assert.match(createOut, line);
   const inCreated = { cwd: created };
   assert.equal(ok('git rev-list --count HEAD', inCreated).trim(), '1');
   assert.equal(ok('git status --porcelain', inCreated).trim(), '', 'everything is in the first commit');
   assert.equal(ok('git branch --show-current', inCreated).trim(), 'main');
+  // The identity given is the first commit's, and this repository's from then on.
+  assert.equal(ok('git log -1 --format=%an/%ae/%cn/%ce', inCreated).trim(), 'Self-test/self-test@example.invalid/Self-test/self-test@example.invalid');
+  assert.equal(ok('git config --local user.email', inCreated).trim(), 'self-test@example.invalid');
   assert.match(ok('git ls-files -s .githooks/pre-push', inCreated), /^100755 /);
   const made = (rel) => readFileSync(join(created, rel), 'utf8');
   assert.match(made('.harness/engineers'), /^engineer-one$/m);

@@ -6,7 +6,7 @@ import { t } from '../text'
 import { SlugRedirect, useItemBySlug } from './itemBySlug'
 import { NotFound } from './NotFound'
 
-export const backLinkClass = 'mb-3 inline-block text-sm text-muted no-underline hover:text-text'
+export const backLinkClass = 'mb-3 inline-block max-w-full text-sm text-muted no-underline hover:text-text'
 
 export function ItemPage() {
   const { slug } = useParams({ from: '/items/$slug' })

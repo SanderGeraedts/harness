@@ -47,6 +47,8 @@
   }
   body {
     @apply bg-bg font-sans leading-normal text-text;
+    /* A word longer than the screen breaks instead of widening the page. */
+    overflow-wrap: anywhere;
   }
   :focus-visible {
     @apply outline-2 outline-offset-2 outline-accent;

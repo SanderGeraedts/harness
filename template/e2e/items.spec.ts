@@ -129,3 +129,53 @@ for (const colorScheme of ['light', 'dark'] as const) {
     expect(r! > 128).toBe(colorScheme === 'light')
   })
 }
+
+// Phone first: no screen may be wider than the phone, whatever a user typed. A long note and
+// a long word that can't break are what stretch a page.
+for (const width of [320, 412]) {
+  test(`no screen is wider than a ${width}px phone, with a long note and a long unbroken title`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 720 })
+    const fits = async (what: string) => {
+      const { page: pageWidth, screen } = await page.evaluate(() => ({
+        page: document.documentElement.scrollWidth,
+        screen: document.documentElement.clientWidth,
+      }))
+      // Soft, so one run names every screen that is too wide.
+      expect.soft(pageWidth, `${what} is ${pageWidth}px wide on a ${screen}px screen`).toBeLessThanOrEqual(screen)
+    }
+
+    await page.goto('/items/new')
+    await page.getByLabel(t.title).fill('Unbreakable'.repeat(30))
+    await page.getByLabel(t.note).fill(`${'A note that goes on for longer than any phone is wide. '.repeat(4)}\n${'x'.repeat(300)}`)
+    await page.getByRole('button', { name: t.save }).click()
+    await expect(page).toHaveURL(/\/items\/unbreakable/)
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+    await fits('the item page')
+
+    await page.getByRole('link', { name: t.edit }).click()
+    await expect(page.getByRole('heading', { level: 1, name: t.editItem })).toBeVisible()
+    await fits('the edit form')
+
+    await page.goto('/')
+    await expect(page.getByRole('heading', { level: 1, name: t.items })).toBeVisible()
+    await expect(page.getByRole('heading', { level: 2 })).toHaveCount(buildDemoItems().length + 1)
+    await fits('the list')
+
+    await page.goto('/items/new')
+    await expect(page.getByRole('heading', { level: 1, name: t.newItem })).toBeVisible()
+    await fits('the new item form')
+
+    await page.goto('/design')
+    await expect(page.getByRole('heading', { level: 1, name: t.design })).toBeVisible()
+    await fits('/design')
+  })
+}
+
+test('a card shows the first line of the note only', async ({ page }) => {
+  const item = buildDemoItems().find((i) => i.note.includes('\n'))!
+  const [first, second] = item.note.split('\n')
+  await page.goto('/')
+  const card = page.getByRole('link', { name: item.title })
+  await expect(card).toContainText(first!)
+  await expect(card).not.toContainText(second!)
+})

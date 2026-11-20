@@ -56,7 +56,7 @@ export function DesignPage() {
         <div className="mt-4">
           <Card>
             <div className="flex items-start justify-between gap-3">
-              <h3 className="m-0 text-lg font-semibold">{t.title}</h3>
+              <h3 className="m-0 min-w-0 text-lg font-semibold">{t.title}</h3>
               <StatusBadge status="doing" />
             </div>
             <p className="mt-1 mb-0 text-muted">{t.note}</p>

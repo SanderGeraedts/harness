@@ -14,11 +14,13 @@ import {
   main,
   onAccent,
   parseArgs,
+  repositoryRoot,
   placeholders,
   resolveEngineers,
   resolveOptions,
   titleFromName,
   unfilled,
+  unique,
   waitForCi,
 } from '../lib/create.mjs';
 import { read } from '../lib/frontmatter.mjs';
@@ -313,7 +315,103 @@ describe('create: the steps', () => {
     assert.match(said.at(-1), /Created, but not protected\./);
   });
 
+  it('a failure before the first commit removes what the run made, so it can be repeated', async () => {
+    const o = { ...options({ engineers: ['engineer-one'], github: false }), dir: join(tempDir(), 'p') };
+    const { deps } = fake(o);
+    const failing = (at) => (command, args, opts) => {
+      if (`${command} ${args.join(' ')}`.includes(at)) throw new Error(`${at} failed:\nno such ref`);
+      return deps.exec(command, args, opts);
+    };
+    await assert.rejects(create(o, { ...deps, exec: failing('pnpm add') }), /pnpm add failed:\nno such ref\nNothing was created: .* is removed\. Fix the cause and run the command again\./);
+    assert.ok(!existsSync(o.dir), 'the folder the run made is gone');
+    // The same command again now gets as far as it can.
+    await create(o, deps);
+    assert.ok(existsSync(join(o.dir, 'package.json')));
+
+    // A folder that was there, empty, stays, and is empty again.
+    const mine = tempDir();
+    await assert.rejects(create({ ...o, dir: mine }, { ...deps, exec: failing('git commit') }), /Nothing was created: .* is empty again\./);
+    assert.deepEqual(readdirSync(mine), []);
+  });
+
+  it('keeps the project when a step fails after the first commit', async () => {
+    const o = { ...options({ engineers: ['engineer-one'] }), dir: join(tempDir(), 'p') };
+    const { deps } = fake(o);
+    const exec = (command, args, opts) => {
+      if (args.includes('push')) throw new Error('git push failed:\nrejected');
+      return deps.exec(command, args, opts);
+    };
+    await assert.rejects(create(o, { ...deps, exec }), /exists and is still empty\. Fix the cause, remove .* and run the command again/);
+    assert.ok(existsSync(join(o.dir, 'package.json')));
+  });
+
+  it('sets the git identity given for the new repository, before the first commit', async () => {
+    const o = { ...options({ engineers: ['engineer-one'], github: false, gitName: 'An Engineer', gitEmail: 'engineer@example.invalid' }), dir: join(tempDir(), 'p') };
+    const { calls, deps } = fake(o);
+    await create(o, deps);
+    assert.deepEqual(calls.slice(1, 4), ['git init -q -b main', 'git config user.name An Engineer', 'git config user.email engineer@example.invalid']);
+    assert.ok(calls.indexOf('git config user.email engineer@example.invalid') < calls.findIndex((c) => c.startsWith('git commit')));
+    // Without the flags git's own configuration is left to decide.
+    const plain = fake(o);
+    await create({ ...o, gitName: undefined, gitEmail: undefined, dir: join(tempDir(), 'p') }, plain.deps);
+    assert.ok(!plain.calls.some((c) => c.startsWith('git config user.')));
+  });
+
   it('waitForCi gives up when no run appears', async () => {
     await assert.rejects(waitForCi('a/b', { gh: () => '[]', wait: async () => {}, appearTries: 3 }), /no CI run appeared on a\/b/);
+  });
+});
+
+describe('create: what the tester found', () => {
+  it('keeps $ patterns in the title and purpose as plain text', () => {
+    const template = read(join(HARNESS_ROOT, 'templates', 'AGENTS.md'));
+    const o = options({ title: "Pay $& $` $' $1 $$", purpose: "Costs $' and $` and $& and $1, $$ too." });
+    const text = describeInAgents(template, o);
+    assert.ok(text.includes("**Pay $& $` $' $1 $$.** Costs $' and $` and $& and $1, $$ too.\n"), 'the line is there as typed');
+    // Nothing else moved: the rest is the template, with one line swapped and the rules added.
+    assert.equal(text.split('\n').length, describeInAgents(template, options()).split('\n').length);
+    assert.equal(text.match(/## Before you change anything/g).length, 1);
+    const values = placeholders(o, '2026-01-02');
+    assert.equal(fill('> __PROJECT_PURPOSE__', values), "> Costs $' and $` and $& and $1, $$ too.");
+    assert.equal(fill('t: __PROJECT_TITLE_JSON__', values), `t: ${JSON.stringify(o.title)}`);
+    const dir = join(tempDir(), 'out');
+    copyTemplate(dir, o, { date: '2026-01-02' });
+    assert.match(read(join(dir, 'docs/decisions/D-0001-what-this-project-is-for.md')), /^> Costs \$' and \$` and \$& and \$1, \$\$ too\.$/m);
+    assert.ok(read(join(dir, 'README.md')).startsWith("# Pay $& $` $' $1 $$\n"));
+  });
+
+  it('lists an Engineer once, however often and in whatever case it was given', () => {
+    assert.deepEqual(unique(['a', 'b', 'B', 'a', 'c']), ['a', 'b', 'c']);
+    assert.deepEqual(resolveOptions(parseArgs(['p', '--purpose', 'x', '--engineer', 'a,b', '--engineer', 'B']), { cwd: tempDir() }).engineers, ['a', 'b']);
+    assert.deepEqual(resolveEngineers({ cwd: tempDir(), given: ['a', 'b', 'b', 'A'], getLogin: () => 'a' }).engineers, ['a', 'b']);
+    const cwd = tempDir();
+    write(cwd, '.harness/engineers', 'a\nb\n');
+    assert.deepEqual(resolveEngineers({ cwd, given: ['B', 'c', 'c'], getLogin: () => 'a' }).engineers, ['a', 'b', 'c']);
+  });
+
+  it('takes a git name and address, and refuses ones it cannot use', () => {
+    const o = resolveOptions(parseArgs(['p', '--purpose', 'x', '--git-name', ' An  Engineer ', '--git-email', 'engineer@example.invalid']), { cwd: tempDir() });
+    assert.equal(options({ gitEmail: 'tests@sss.example.invalid' }).gitEmail, 'tests@sss.example.invalid');
+    assert.equal(o.gitName, 'An Engineer');
+    assert.equal(o.gitEmail, 'engineer@example.invalid');
+    assert.equal(options().gitName, undefined);
+    assert.throws(() => options({ gitEmail: 'not an address' }), /isn't an e-mail address/);
+    assert.throws(() => options({ gitEmail: 'a@b <c@d>' }), /isn't an e-mail address/);
+    assert.throws(() => options({ gitName: '  ' }), /--git-name is empty/);
+  });
+
+  it('puts a project made from inside a repository next to that repository, not in it', () => {
+    const outside = tempDir();
+    assert.equal(repositoryRoot(outside), undefined);
+    assert.equal(resolveOptions({ name: 'p', purpose: 'x', engineers: [] }, { cwd: outside }).dir, join(outside, 'p'));
+    const parent = tempDir();
+    write(parent, 'repo/.git/HEAD', 'ref: refs/heads/main\n');
+    write(parent, 'repo/src/deep/file.txt', '');
+    const deep = join(parent, 'repo', 'src', 'deep');
+    assert.equal(repositoryRoot(deep), join(parent, 'repo'));
+    assert.equal(resolveOptions({ name: 'p', purpose: 'x', engineers: [] }, { cwd: deep }).dir, join(parent, 'p'));
+    assert.equal(resolveOptions({ name: 'p', purpose: 'x', engineers: [] }, { cwd: join(parent, 'repo') }).dir, join(parent, 'p'));
+    // --dir is taken as given.
+    assert.equal(resolveOptions({ name: 'p', purpose: 'x', engineers: [], dir: 'here' }, { cwd: deep }).dir, join(deep, 'here'));
   });
 });

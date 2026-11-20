@@ -8,7 +8,7 @@ import { t } from '../text'
 export function AccentHeading({ children, level = 1 }: { children: ReactNode; level?: 1 | 2 }) {
   const Tag = level === 1 ? 'h1' : 'h2'
   return (
-    <Tag className={`m-0 inline-block font-semibold ${level === 1 ? 'text-2xl' : 'text-lg'}`}>
+    <Tag className={`m-0 inline-block max-w-full font-semibold ${level === 1 ? 'text-2xl' : 'text-lg'}`}>
       {children}
       <span aria-hidden="true" className="mt-1 block h-1 w-full rounded-full bg-accent" />
     </Tag>
@@ -23,7 +23,7 @@ const BUTTON_LOOKS = {
 
 /** The classes of a button, for links that look like one. */
 export function buttonClass(variant: keyof typeof BUTTON_LOOKS = 'primary'): string {
-  return `inline-block rounded-full px-5 py-2 text-base no-underline disabled:opacity-60 ${BUTTON_LOOKS[variant]}`
+  return `inline-block shrink-0 rounded-full px-5 py-2 text-base no-underline disabled:opacity-60 ${BUTTON_LOOKS[variant]}`
 }
 
 export function Button({
@@ -41,7 +41,7 @@ const STATUS_CLASSES: Record<ItemStatus, string> = {
 }
 
 export function StatusBadge({ status }: { status: ItemStatus }) {
-  return <span className={`inline-block rounded-full px-2.5 py-0.5 text-sm ${STATUS_CLASSES[status]}`}>{t.statuses[status]}</span>
+  return <span className={`inline-block shrink-0 rounded-full px-2.5 py-0.5 text-sm whitespace-nowrap ${STATUS_CLASSES[status]}`}>{t.statuses[status]}</span>
 }
 
 export const inputClass = 'block w-full rounded-card border border-line bg-bg px-4 py-2 text-base text-text'
