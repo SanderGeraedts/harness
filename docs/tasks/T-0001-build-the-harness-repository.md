@@ -111,3 +111,10 @@ One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
 - 2026-11-20 developer: built the registry (25 global decisions), the rules, the team, the
   templates, the command and the workflows. `pnpm test`, `pnpm run self-test` and
   `pnpm run check` pass; output under *Test*.
+- 2026-11-20 tester: CI ran the same checks on Linux, on the pull request and on `main`
+  after the merge (47 tests pass, self-test passed in 14 steps). Merged by hand as #1, as
+  planned; `main` at 8cdfd3f is tagged `v0.1.0`.
+- 2026-11-20 developer: the ruleset on `main` (G-0025) is not applied yet: the session was
+  not permitted to change the repository's settings. To apply it:
+  `node bin/harness.mjs protect "checks / checks"`, then check with
+  `gh api repos/{owner}/{repo}/rules/branches/main`.
