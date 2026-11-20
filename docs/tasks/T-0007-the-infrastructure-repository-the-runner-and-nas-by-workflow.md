@@ -177,14 +177,28 @@ One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
   NAS's host, pool, dataset, fingerprint, IPv4 addresses, `/mnt/` and `.ts.net` found none.
 - 2026-11-20 developer: for the architect, beyond the task. (1) `project-up.yml` and
   `project-down.yml` call `infra-project-up.yml` / `infra-project-down.yml`, which are stubs
-  that fail with "arrives with harness 0.6.0" so the callers are valid now; T-0004 replaces
+  that fail with "arrives with harness 0.7.0" so the callers are valid now; T-0004 replaces
   them and their inputs. (2) Added `harness infra check` (what `init` offers to start),
   `--harness-ref` on `init`, and the internal `harness infra job nas | check` the workflows
   run. (3) The user-level settings file is `harness/infra.json` under `HARNESS_CONFIG_DIR`,
   `XDG_CONFIG_HOME`, `APPDATA` or `~/.config`. (4) The template's T-0002 and D-0001 still
   name G-0022 and G-0024; left alone because T-0008 (#13) rewrites those files. (5) The
   runner's job installs Node and pnpm from the internet on each run; a cache could come later.
-- 2026-11-20 developer: Remaining: after `v0.4.0` is tagged, run `harness infra init` once
+- 2026-11-20 developer: merged `main` after T-0008 (#13) took 0.5.0. On the coordinator's
+  word T-0007 is now 0.6.0 (Goal, Done-when 6 and Notes say so) and T-0004's slice 3 is
+  0.7.0 (its slice table, the stubs' message, the `GHCR_PULL_TOKEN` line). G-0026 to G-0029
+  say `since: 0.4.0`, a version never tagged, and shipped in v0.5.0: `changes v0.3.0
+  v0.4.0` still lists them as Done-when 1 asks, `changes v0.5.0 v0.6.0` rightly doesn't, and
+  the README says so (it also corrects main's "From 0.4.0 to 0.5.0" paragraph). The
+  template's D-0001 now names G-0028 and its CI workflow's comment G-0029 (T-0002 no longer
+  named G-0022 after #13). `pnpm test`: 173 pass, 0 fail. `pnpm run self-test`: "✓
+  self-test passed: 27 steps, harness 0.6.0 in a throwaway project"; with `--e2e`: "29
+  steps". `pnpm run check`: tasks, global decisions and agents ✓. Live: `harness infra
+  init` re-pinned the infrastructure repository to the merge commit through its pull
+  request #4; `harness nas --remote core.ping` printed `"pong"`; `harness infra check`
+  exited 0 (four secrets ✓, `GHCR_PULL_TOKEN` not there yet, configuration ✓, "pong");
+  the runner `online`.
+- 2026-11-20 developer: Remaining: after `v0.6.0` is tagged, run `harness infra init` once
   more so the infrastructure repository is pinned to the tag instead of this branch's
   commit (Done-when 2 then shows "nothing changed" on a second run); Done-when 4 from a
   machine off the home network; the tag itself (Done-when 6).
