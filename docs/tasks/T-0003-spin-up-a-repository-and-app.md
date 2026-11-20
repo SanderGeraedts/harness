@@ -2,11 +2,11 @@
 id: T-0003
 title: "Spin up a repository and app from one prompt"
 description: "A command the Engineer runs that creates a new repository with the app from the default stack, the harness installed and initialised, CI and auto-merge wired, and the default branch protected."
-status: Doing               # Open | Doing | Done | Dropped
+status: Done                # Open | Doing | Done | Dropped
 depends_on: [T-0002]        # tasks that must be Done first
 decisions: [G-0004, G-0007, G-0016, G-0017, G-0019, G-0020, G-0021, G-0024, G-0025]
 raised_on: 2026-11-20
-done_on: ""
+done_on: "2026-11-20"
 result: ["https://github.com/SanderGeraedts/harness/pull/5"]  # PR URLs
 ---
 
@@ -450,3 +450,8 @@ One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
   a check of this task: whether new repositories stay private by default, whether the
   ruleset should also require `template-e2e`, and deleting the throwaway repository of the
   live run.
+- 2026-11-20 tester: marked the pull request ready; it merged itself as `ac11767`. CI on
+  `main` for that commit is green, `checks / checks` and `template-e2e` both, and the tag
+  `v0.3.0` is on it.
+- 2026-11-20 tester: done. What the second run left is in T-0006, which also names the
+  three points that wait for the Engineer.
