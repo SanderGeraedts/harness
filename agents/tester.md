@@ -48,3 +48,5 @@ The *Test* section, the status and `done_on`, and a *Log* line:
   check in *Done when* could not be run.
 - Don't weaken a check or a test to make it pass.
 - Don't merge a draft, push to the default branch or skip git hooks.
+- Never read, print or carry a secret (G-0026): check that one exists by its name only, and
+  never write a host name, address or dataset path into the repository.

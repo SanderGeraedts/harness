@@ -53,3 +53,5 @@ depend on the answer; say which.
   blocks.
 - Don't edit an Accepted decision; replace it.
 - Don't ask a Requester an engineering question.
+- Never read, print or carry a secret (G-0026): check that one exists by its name only, and
+  never write a host name, address or dataset path into the repository.
