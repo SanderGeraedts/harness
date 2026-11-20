@@ -510,7 +510,149 @@ Nothing is sent back. What the first review listed under *Seen and left as it is
 
 # Test
 
-Not yet tested.
+Tester, 2026-11-20, on commit `ffeea52`, in a fresh worktree with `pnpm install
+--frozen-lockfile`. No Docker on this machine: every backend was a throwaway PocketBase 0.40.6
+started from the binary with the project's own `pb_migrations/` and `pb_hooks/`, on an empty
+database, as the developer did.
+
+**Verdict: sent back to the developer.** One blocking defect: the end-to-end test of `/design`'s
+sync status fails at random, and with it *Done when* 3 (`node scripts/self-test.mjs --e2e`)
+failed two runs of three. A second defect should be fixed in the same round: the item form
+accepts a title the backend refuses for good, which stops all syncing. Everything else
+passed.
+
+## The checks, as written
+
+- `pnpm install --frozen-lockfile`: `Done in 255ms`.
+- `pnpm test`: `ℹ tests 124`, `ℹ pass 124`, `ℹ fail 0`.
+- `pnpm run check`: `✓ tasks: 9 tasks, index in step`, `✓ global decisions: 25 records, index
+  complete`, `✓ agents: 4 definitions`.
+- `pnpm run self-test`: `✓ self-test passed: 23 steps, harness 0.5.0 in a throwaway project`.
+- `BACKEND_TEST_URL=http://127.0.0.1:8190 node scripts/self-test.mjs --e2e`, three times, each
+  on a fresh backend started for the origin `http://localhost:4318`:
+  - run 1: **failed**, `✗ self-test failed at step 24: pnpm exec playwright test
+    --reporter=list failed (1)`, with `1 failed [phone] › e2e\sync-off.spec.ts:28:1 › /design
+    shows the sync status in each of its states, with the count in singular and plural`,
+    `Error: expect(received).toContain(expected)`, `Expected value: "All synced"`, `Received
+    array: []`; `26 passed (46.1s)`; then `1 !== 0`.
+  - run 2: `✓ self-test passed: 25 steps, harness 0.5.0 in a throwaway project`.
+  - run 3: **failed**, the same test with the same error; `26 passed (46.6s)`.
+- In CI on the pull request, `checks / checks`, `template-e2e` and `template-backend / image`
+  are green on `ffeea52` and on every earlier commit. CI's runner runs fewer tests at once,
+  which makes the race below rarer, not impossible.
+
+**The cause** (this is also the developer's unexplained `1 !== 0`): the test reads the lines
+with `allTextContents()` straight after `page.goto('/design')`. That call doesn't wait, and
+`/design` is a lazily loaded page, so when it hasn't rendered yet the list is empty. The page
+snapshot taken after the failure shows `/design` fully rendered. Alone, with `--repeat-each=30
+--workers=5`, the test failed 2 of 30 times. It ships in every project created with sync, and
+in the harness's CI `retries: 1` turns one miss into `1 flaky`, which the self-test rejects.
+To fix: wait for the sync region (for example `await expect(region.first()).toBeVisible()`)
+before reading the lines, or assert with a retrying `expect(locator).toContainText([...])`.
+
+## Two projects of my own
+
+`harness create synced --sync` and `harness create local --no-sync`, both with `--no-github`,
+from the packed harness, in a scratch folder:
+
+- `synced`: `the app, from the template: 90 files, with a backend, sign-in and sync`; `pnpm
+  install --frozen-lockfile`, `pnpm run typecheck`, `pnpm test` (`Test Files 10 passed | 1
+  skipped (11)`, `Tests 62 passed | 5 skipped (67)`), `pnpm run build` and `harness check`
+  (`✓ tasks: 2 tasks`, `✓ decisions: 10 records`, `✓ engineers: 1 listed`, `✓ generated files:
+  current`) all pass.
+- `local`: `50 files, without sync`; the same five pass (`Tests 29 passed (29)`, `✓ decisions: 5
+  records`). It has no `backend/`, `src/auth/` or `.github/workflows/backend.yml`, and
+  `pocketbase` appears 0 times in `package.json` and `pnpm-lock.yaml`.
+- `synced` against a fresh backend from its own `backend/`: `bash backend/smoke-test.sh` gave
+  eight `ok:` lines and `All smoke tests passed.`; `pnpm run test:backend`: `Tests 5 passed
+  (5)`; its full end-to-end tests: `27 passed (46.0s)`.
+
+## *Done when*, one by one
+
+1. Passes: see above.
+2. Passes: `template-backend / image` is green in CI; locally the smoke test and the backend
+   tests pass against the binary.
+3. **Fails:** two of three runs, as above. When the race doesn't hit, all 27 tests pass,
+   including the 13 against the backend.
+4. Passes. `CONTEXT=deploy-preview` and `CONTEXT=branch-deploy` with `BACKEND_URL` set: the
+   address is in no file of `dist`, nor is the backend client (`auth-with-password`); `_headers`
+   has `connect-src 'self'`. The preview does hold the words of the sign-in from `text.ts`,
+   because `/design` shows the form; it has no sign-in screen. `CONTEXT=production`: the
+   address is in the bundle and `_headers` has `connect-src 'self' https://<address>` and
+   nothing else changed. An address with a path gives only its origin; an address that isn't
+   a URL fails the production build.
+5. Passes: self-test step 23, and `backend/README.md` says where the values live.
+6. Passes: both reviews are in *Design*.
+7. Not yet: the tag waits for this round.
+8. Passes, in the end-to-end tests and in my own: a wrong password twice (`400`, "That e-mail
+   and password don't match.", the password emptied and focused, the e-mail kept) and then
+   the right one landed on `/items/new`, the address that was opened.
+9. Passes. The tests cover both outcomes; I also held the pull to see "Signing out…" disabled.
+10. Passes. My own: offline, the token's date passed, the app reopened; an item was made and
+    another renamed, and the line read "2 changes not synced · Sign in again to sync" as a
+    link to `/account`. Back online, signing in there sent both and the line read "All synced".
+11. Passes, in the tests: each line, the details, and the storage line only on a refusal. My
+    own: "1 change not synced" while online with the push held, and "Syncing…" disabled.
+12. Passes (`sync-off.spec.ts`, the first test).
+13. Passes (the width tests at 320px, in the project's tests).
+14. Passes: every component is on `/design` in each state, and no word is hard-coded in the
+    new components.
+
+## What I tried to break
+
+In a spec of my own in the scratch project (not committed), production build, two browser
+contexts as two devices of one account, against the throwaway backend:
+
+- **An offline edit on each device**, the later one coming online first: both devices and the
+  backend end with the later edit, and the backend holds one record. Passed.
+- **A delete on one and a later edit on the other**, and an edit then a later delete: the later
+  change wins on both devices, the backend holds the edited one and the tombstone. Passed.
+- **The server gone mid-sync** (the first item's push answered, the rest refused): "Sync failed ·
+  2 changes not synced", the details say "Couldn't reach the server.", the outbox keeps 2
+  rows; after "Sync now" all three are on the backend once each. Passed.
+- **Busy states and "Fetching your items…"**, with requests held: "Signing in…" disabled with
+  the e-mail kept; "Fetching your items…" until the first pull ends, then "Nothing here yet.";
+  "1 change not synced" online; "Syncing…" disabled; "Signing out…" disabled, then the device
+  is empty. Passed.
+- **A sign-in that ended**, offline and online: passed (*Done when* 10).
+- **Through the API, with two accounts** (A and B) and no account: B filtering on A's owner
+  id gets 0, B viewing or changing A's item gets `404`, B making a record under A's id gets
+  `400`, B lists only itself among users, a batch request gets `403 Batch requests are not
+  allowed.`, a guest lists 0 items and 0 users, views `404`, makes nothing (`400`); a forged,
+  expired token gets 0 items and its refresh `401`; A's item is unchanged; A asking for
+  `_superusers` gets `403`. `funnel.json` holds only `/api/health` and the two collections.
+- **The backend refusing a change** (the developer's open point): **confirmed, it blocks the
+  outbox.** A 501-character title (the form has no limit; the backend allows 500) followed by
+  a normal item: after waiting, the outbox still holds 2 rows, the backend has nothing, and
+  the band says "Sync failed · 2 changes not synced" and "Something went wrong while syncing.",
+  with no hint which item. Shortening the title released both. A note over 20,000 characters
+  will do the same. Signing out then removes both changes for good.
+
+## Judged where the task was silent
+
+- **A sign-in lasts 30 days, renewed by every sync:** fine as the template's start; it is in
+  the migration and in `auth.ts`, and an idle device simply gets "Sign in again to sync".
+- **An account can't change or remove itself; nothing is removed through the API:** fine,
+  and both follow D-0006 and D-0007. Removing data for good is then the Engineer's work in the
+  admin screen, which suits G-0009.
+- **The end-to-end tests start the throwaway backend in CI:** fine; it is what makes
+  `checks / checks` prove sign-in and sync on every pull request.
+- **The backend workflow also runs for `src/sync`, `src/auth` and `src/db`:** fine for pull
+  requests; its push trigger and the auto-merge paths rightly list only what goes into the
+  image.
+- **For the architect, not blocking:** (1) the caller grants `packages: write` to the whole
+  workflow, also on pull requests, where `actions/checkout` leaves the token in `.git/config`
+  while the pull request's own scripts run; a separate publish job would hold that permission
+  alone. (2) `Backend` is not a check auto-merge waits for (the developer's point). (3) A change
+  the backend refuses for good holds up every change behind it: beyond the form's limits, the
+  engine needs a decision on what to do with such a row (set it aside and say which item).
+
+## For the developer
+
+1. Make `e2e/sync-off.spec.ts`'s second test wait for `/design` before it reads the lines, then
+   run `--repeat-each=30` on it and the e2e self-test three times in a row.
+2. Give the item form the backend's limits (title 500, note 20,000), with words in `text.ts`
+   that the UX designer agrees, so the app can't make a change the backend refuses.
 
 # Log
 
@@ -607,3 +749,8 @@ One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
   always in the page), and the seven dark screenshots left out the first time match too
   (*Second review after building*; *Done when* 6). Handed to the tester; the pull request
   stays a draft until the tester has passed it.
+- 2026-11-20 tester: sent back: `node scripts/self-test.mjs --e2e` failed 2 of 3 runs, always
+  on `/design shows the sync status in each of its states`, which reads the lines before the
+  lazy page has rendered (2 of 30 alone); and the item form takes a title the backend refuses
+  for good, which stops every change behind it. Everything else passed (*Test*). The pull
+  request stays a draft; back to the developer.
