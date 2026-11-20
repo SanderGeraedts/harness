@@ -75,9 +75,18 @@ jobs:
       - name: Project checks
         run: ${{ inputs.checks }}
 
+      # The runner image already has the system libraries Chromium needs, so no
+      # `--with-deps`: its package install took from 30 seconds to over six minutes.
+      - name: Cache the browser
+        if: inputs.e2e != ''
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
       - name: Install the browser
         if: inputs.e2e != ''
-        run: pnpm exec playwright install --with-deps chromium
+        run: pnpm exec playwright install chromium
 
       - name: End-to-end tests
         if: inputs.e2e != ''

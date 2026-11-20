@@ -1,14 +1,16 @@
 #!/usr/bin/env node
 // The self-test (G-0015): packs the harness as a project would receive it, installs it into
 // a throwaway project, and runs its commands there.
-//   pnpm run self-test [--keep] [--keep-on-failure]
-// --keep leaves the throwaway projects behind; --keep-on-failure only when a step failed.
+//   pnpm run self-test [--keep] [--keep-on-failure] [--e2e]
+// --keep leaves the throwaway projects behind; --keep-on-failure only when a step failed;
+// --e2e also runs the end-to-end tests of the project `harness create` makes (installs a
+// browser).
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const own = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
@@ -257,6 +259,57 @@ try {
   assert.match(ok(`${harness} sync`, inAdopted), /wrote \.githooks\/pre-push\nwrote docs\/decisions\/README\.md/);
   assert.match(ok(`${harness} check`, inAdopted), /✓ decisions: 2 records, index complete, 0 overrules valid/);
   assert.match(ok(`${harness} adopt`, inAdopted), /Would add\n {2}nothing: every file is there\n\nCandidates to replace with a global decision\n {2}none/);
+
+  step('harness create refuses anyone who is not the Engineer');
+  // Outside a project and without --engineer nobody is the Engineer, signed in or not.
+  const bin = `"${process.execPath}" "${join(installed, 'bin', 'harness.mjs')}"`;
+  fails(`${bin} create spun-up --purpose "Try the template." --no-github`, /only the Engineer creates a project \(G-0024\)/, { cwd: work });
+  assert.ok(!existsSync(join(work, 'spun-up')), 'a refused create must write nothing');
+  assert.match(ok(`${harness} create --help`), /--harness-ref <ref>/);
+
+  step('harness create --no-github makes a project from the template');
+  // The installed copy, told who is signed in: CI has no gh account to be the Engineer.
+  const created = join(work, 'spun-up');
+  const createArgs = ['spun-up', '--purpose', 'Try the template.', '--engineer', 'engineer-one', '--accent', '#aa3366', '--language', 'nl', '--no-github', '--git-name', 'Self-test', '--git-email', 'self-test@example.invalid', '--harness-package', join(work, tarball)];
+  writeFileSync(
+    join(work, 'create.mjs'),
+    `import { main } from ${JSON.stringify(pathToFileURL(join(installed, 'lib', 'create.mjs')).href)};\nprocess.exitCode = await main(${JSON.stringify(createArgs)}, process.cwd(), { getLogin: () => 'engineer-one', interactive: false });\n`,
+  );
+  const createOut = ok(`"${process.execPath}" create.mjs`, { cwd: work });
+  for (const line of [/✓ tasks: 3 tasks, index in step/, /✓ decisions: 5 records, index complete/, /✓ engineers: 1 listed/, /✓ generated files: current/, /✓ first commit on main/, /Stopped before GitHub/])
+    assert.match(createOut, line);
+  const inCreated = { cwd: created };
+  assert.equal(ok('git rev-list --count HEAD', inCreated).trim(), '1');
+  assert.equal(ok('git status --porcelain', inCreated).trim(), '', 'everything is in the first commit');
+  assert.equal(ok('git branch --show-current', inCreated).trim(), 'main');
+  // The identity given is the first commit's, and this repository's from then on.
+  assert.equal(ok('git log -1 --format=%an/%ae/%cn/%ce', inCreated).trim(), 'Self-test/self-test@example.invalid/Self-test/self-test@example.invalid');
+  assert.equal(ok('git config --local user.email', inCreated).trim(), 'self-test@example.invalid');
+  assert.match(ok('git ls-files -s .githooks/pre-push', inCreated), /^100755 /);
+  const made = (rel) => readFileSync(join(created, rel), 'utf8');
+  assert.match(made('.harness/engineers'), /^engineer-one$/m);
+  for (const wf of ['ci.yml', 'auto-merge.yml']) assert.ok(made(`.github/workflows/${wf}`).includes(`/.github/workflows/${wf}@v${own.version}\n`), `${wf} is pinned to the tag`);
+  assert.match(made('AGENTS.md'), /^\*\*Spun up\.\*\* Try the template\.$/m);
+  assert.match(made('docs/tasks/index.md'), /T-0003 Translate the interface/);
+  assert.doesNotMatch(made('src/styles/app.css') + made('package.json') + made('index.html'), /__[A-Z]+(_[A-Z]+)*__/);
+  for (const f of ['public/icons/icon-192.png', 'public/icons/icon.svg', 'pnpm-lock.yaml', '.gitignore']) assert.ok(existsSync(join(created, f)), `create did not make ${f}`);
+
+  step('the created project installs, type-checks, passes its tests, builds and passes harness check');
+  ok('pnpm install --frozen-lockfile', inCreated);
+  ok('pnpm run typecheck', inCreated);
+  // Colour codes may sit between the words, so only the count is matched.
+  assert.match(ok('pnpm test', inCreated), /\d+ passed/);
+  ok('pnpm run build', inCreated);
+  assert.ok(existsSync(join(created, 'dist', 'sw.js')), 'the build has a service worker');
+  assert.match(ok(`${harness} check`, inCreated), /✓ generated files: current/);
+
+  if (process.argv.includes('--e2e')) {
+    step('the created project passes its end-to-end tests');
+    ok('pnpm exec playwright install chromium', inCreated);
+    const e2e = ok('pnpm run test:e2e', { ...inCreated, env: { E2E_PORT: '4317' } });
+    assert.match(e2e, /\d+ passed/);
+    assert.doesNotMatch(e2e, /\d+ (failed|flaky)/);
+  }
 
   console.log(`\n✓ self-test passed: ${steps} steps, harness ${own.version} in a throwaway project`);
 } catch (e) {
