@@ -2,12 +2,12 @@
 id: T-0005
 title: "Close the gaps found in the first adoption"
 description: "Let a project decision be replaced by a global one, let a project add to its generated registry README, give the reusable CI artifact options, and add an adopt path for repositories that already have registries."
-status: Doing               # Open | Doing | Done | Dropped
+status: Done                # Open | Doing | Done | Dropped
 depends_on: [T-0002]        # tasks that must be Done first
 decisions: [G-0001, G-0002, G-0004, G-0012, G-0015]
 raised_on: 2026-11-20
-done_on: ""
-result: ["https://github.com/SanderGeraedts/harness/pull/4"]                  # PR URLs
+done_on: "2026-11-20"
+result: ["https://github.com/SanderGeraedts/harness/pull/4", "https://github.com/SanderGeraedts/harness/pull/6", "https://github.com/SanderGeraedts/harness/pull/7"]                  # PR URLs
 ---
 
 # Goal
@@ -187,6 +187,29 @@ writes nothing; `init --default-branch` gives `✗ --default-branch needs a name
 4. `init -x` takes `-x` as a login: only options that start with `--` are refused.
 5. When `adopt --write` writes nothing but has a `! kept ...` line, the heading still reads
    `added what was missing and overwrote nothing`.
+6. Marking a pull request ready seconds after its CI run finished leaves one red auto-merge
+   run: the run for the earlier green CI tries to merge while the CI run of the ready event
+   is still going, and the ruleset refuses (`the base branch policy prohibits the merge`,
+   run 44740152377). The next auto-merge run merged it 30 seconds later. Nothing is wrong
+   with the merge; the red run is noise.
+
+## After the merge
+
+- Pull request 4 merged itself as `a194b32`, by the 0.1.0 auto-merge workflow, which starts
+  no CI on `main`.
+- `gh workflow run self-ci.yml --ref main`: run 44740339530, event `workflow_dispatch`,
+  on `a194b32`, success. The auto-merge run it caused (44740395479) was skipped: no loop.
+- Tag `v0.2.0` on `a194b32`, pushed.
+- The hold path, on pull request 6, which adds a paragraph to `decisions/README.md` and
+  was never a draft: CI green (run 44740582172), then auto-merge run 44740675438 with the
+  steps `Decide: success`, `Hold for the Engineer: success`, `Merge: skipped`, `Start CI on
+  the default branch: skipped`. The pull request is open, has the label
+  `waits-for-engineer` and the comment `The checks are green, but this pull request changes
+  a path that only the Engineer merges. It waits for the Engineer and will not merge
+  itself.`
+- No pull request has merged through the 0.2.0 auto-merge yet. The one that carries these
+  lines is the first, so whether its merge started CI on `main` can't be written here; the
+  tester reports it to the session.
 
 # Log
 
@@ -218,3 +241,12 @@ One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
   Remaining: the merge, CI on `main` and the tag `v0.2.0`; the hold-path proof on a real
   pull request that touches `decisions/`; and a look at the first merge that starts CI on
   `main` by itself.
+- 2026-11-20 tester: pull request 4 merged itself as `a194b32`; CI started by hand on `main`
+  is green there, and `v0.2.0` is tagged on that commit.
+- 2026-11-20 tester: the hold path holds. Pull request 6 touches `decisions/`, was green
+  and not a draft, and the auto-merge labelled it `waits-for-engineer`, said so in a
+  comment and did not merge it. The evidence is in *Test*, under *After the merge*.
+- 2026-11-20 tester: Done. The pull request that carries this line is the first to merge
+  through the 0.2.0 auto-merge, which should start CI on `main` by itself; the tester checks
+  that run and reports it to the session.
+  Remaining: the Engineer reads and merges pull request 6, or closes it.
