@@ -226,7 +226,8 @@ more lines; "Account" never wraps and never leaves the screen. "Account" is mark
 One band under the header, where the demo band is in other builds, with the same look
 (surface colour, small text). It is always there while signed in, so the page doesn't jump
 when its words change. The band is one button, styled as text, that opens and closes the
-details under it.
+details under it. At its right end a small mark shows that it opens: `▾` closed, `▴` open, muted,
+`aria-hidden`, never wrapping under the words (added after the first review).
 
 **The line.** The first rule that holds decides the words:
 
@@ -404,6 +405,78 @@ every line of the sync status and the open details; the sign-out question; and t
 sign-in screen with the offline line and an error at once. Buttons that stand side by side
 wrap under each other before they are cut off.
 
+## Review after building
+
+UX designer, 2026-11-20, on commit `c0d641c`. **Verdict: sent back to the developer,** for
+three small changes to the sync line (below). Everything else matches the design.
+
+Looked at: the developer's screenshots at 320px, all sixteen in light and nine in dark
+(the sign-in screen, the sign-in screen offline with an error, the list offline, the open
+details offline, the account screen, the sign-out question, the account screen with the
+sign-in ended, the list with the sign-in ended, a failed sync), and the built
+`SignInScreen`, `AccountPage`, `SyncStatus`, `SignInForm`, `SignOut`, `Layout`,
+`sync/line.ts` and `text.ts`. Not looked at yet: the other seven dark screenshots; they
+come with the second review.
+
+**What matches**
+
+- **The sign-in screen:** the order, the words, the offline card above the form with the
+  form still usable, the error above the button. An empty field puts the focus on the first
+  empty one; a wrong password empties the password only and takes the focus.
+- **The header:** a 60-character title wraps onto three lines beside "Account", which stays
+  on one line and on the screen.
+- **The sync line:** the order of the six rules in `sync/line.ts` is the design's, and each
+  line reads as designed, with "1 change" and "1234 changes". The details stack label above
+  value and show the offline and storage lines and a disabled "Sync now" offline.
+- **The account screen:** the 60-character e-mail breaks over two lines; the sign-out
+  question takes the place of the line and the button, with "Sign out anyway" and "Cancel"
+  side by side at 320px. With the sign-in ended: the card, the read-only e-mail, the second
+  "Sign out".
+- **A sign-in that ended** leaves the list as it was, with the line as a link.
+- **320px:** nothing is cut off or scrolls sideways on any screenshot, light or dark.
+- **Screen reader and keyboard,** read in the code: labels through `Field`; the form named
+  "Sign in" and tied to its `role="alert"` error; the region "Sync" with a hidden
+  `role="status"` that speaks only when the rule changes, without the count; `aria-expanded`
+  on the line; the focus to "Cancel" when the question appears and back to "Sign out"
+  after it; the focus to the new screen's heading after signing in and out, and not when a
+  sign-in ends by itself.
+- **`/design`** shows the `Band`, every state of the sync status, the four states of the
+  sign-in form and both of sign-out.
+
+**The developer's three deviations: accepted.** The four extra keys (`joiner` and three
+headings on `/design`) are words a user reads, so they belong in `text.ts`. Escape closing
+the details from the line itself is better than the design. `Band`, the heading that takes
+the focus and the `Button` with a ref in the shared `ui.tsx` change nothing a user of a
+project without sync sees.
+
+**Sent back to the developer**
+
+1. **Nothing shows that the sync line opens.** It looks exactly like the demo band, which
+   does nothing, so "Last synced" and "Sync now" are found only by accident. This is a gap
+   in the design, not in the build, and the design now says: at the right end of the line a
+   small mark, `▾` closed and `▴` open, in the muted colour, `aria-hidden`, that never
+   wraps under the words; the words stay left and wrap before the mark does. Not on the
+   "Sign in again to sync" link, whose underline already says what it is. On `/design` in
+   both positions.
+2. **The line's focus ring is cut off.** With the keyboard on the line only the bottom edge
+   of the ring shows (screenshots 07, light and dark): the rest falls outside the screen
+   and under the header. Draw the ring inside the band, for the button and for the link,
+   so all four sides show.
+3. **`aria-controls` points at nothing while the details are closed,** because the element
+   with that id is only made when they open. Keep the element in the page and hide it when
+   closed.
+
+**Seen and left as it is**
+
+- In the field, a 60-character e-mail is cut off at the right edge, as any long value in a
+  text field is; where it is read-only the whole of it is on the same screen once signed
+  in.
+- In dark, a disabled "Sync now" differs little from an enabled one. The look is the
+  existing `Button`'s, and the line above it says why it can't be pressed.
+- No screenshot shows the busy buttons, "Fetching your items…", or changes waiting while
+  online; `/design` shows the busy form and the waiting line, and the rest is the tester's
+  (*Done when* 8 to 11).
+
 # Test
 
 Not yet tested.
@@ -480,3 +553,8 @@ One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
   policy is no longer in `netlify.toml`, needs a real site. All of these come with the live
   proof of T-0004. Light and dark at 320px, and the words, are the designer's to judge
   (*Done when* 6). Handed to the UX designer for the review, then the tester.
+- 2026-11-20 ux-designer: reviewed: sent back to the developer. The screens match the design
+  at 320px in light and dark, and the three deviations are accepted; three small changes to
+  the sync line are listed under *Review after building*: a mark that shows it opens (a gap
+  in the design, now added to it), a focus ring that is cut off, and `aria-controls`
+  pointing at nothing while closed. The pull request stays a draft.
