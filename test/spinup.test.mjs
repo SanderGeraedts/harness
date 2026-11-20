@@ -21,8 +21,8 @@ after(cleanUp);
 const PATHS = ['/api/health', '/api/collections/users/', '/api/collections/items/'];
 const SITE = 'https://my-project.netlify.app';
 // Made-up stand-ins for what the real services hand out; the tests check none leaks.
-const KEY = 'tskey-auth-fake-0123456789';
-const PULL = 'ghp_fakepulltoken0123456789';
+const KEY = 'fake-auth-key-0123456789';
+const PULL = 'fake-pull-token-0123456789';
 
 describe('spin-up: the Funnel paths', () => {
   it("accepts the template's list", () => {
@@ -180,9 +180,9 @@ describe('spin-up: the backend job', () => {
     assert.deepEqual([task.dataset, task.recursive, task.enabled, task.lifetime_value, task.lifetime_unit, task.schedule.minute, task.schedule.hour], ['tank/apps/my-project', true, true, 2, 'WEEK', '0', '*']);
     assert.equal(nas.state.snapshotsRun, 1, 'a first snapshot before any data');
     // After the first start the app holds no key.
-    assert.doesNotMatch(JSON.stringify(nas.state.apps['my-project'].config), /tskey-|TS_AUTHKEY/);
+    assert.doesNotMatch(JSON.stringify(nas.state.apps['my-project'].config), /fake-auth-key|TS_AUTHKEY/);
     assert.match(lines.join('\n'), /✓ the auth key: removed from the app's configuration/);
-    for (const l of lines) assert.doesNotMatch(l, /tskey-|ghp_|\/data\/|tank/, l);
+    for (const l of lines) assert.doesNotMatch(l, /fake-auth-key|fake-pull-token|\/data\/|tank/, l);
   });
 
   it('a second run makes nothing and says "already there" for each step', async () => {
@@ -215,7 +215,7 @@ describe('spin-up: the backend job', () => {
     const nas = fakeNas();
     await upBackend({ ...base, isPrivate: false, pullToken: PULL, nas, ...keys() });
     assert.ok(!nas.calls.some((c) => c.startsWith('app.registry')));
-    assert.doesNotMatch(JSON.stringify(nas.state.apps['my-project'].config), /REPO_PASS|ghp_/);
+    assert.doesNotMatch(JSON.stringify(nas.state.apps['my-project'].config), /REPO_PASS|fake-pull-token/);
   });
 
   it("refuses a dataset or an app of the project's name that spin-up didn't make, and changes nothing", async () => {
@@ -236,8 +236,8 @@ describe('spin-up: the backend job', () => {
       if (m === 'app.create') nas.state.apps['my-project'].state = 'CRASHED';
       return r;
     };
-    await assert.rejects(upBackend({ ...base, nas, ...keys(), waitOptions: { tries: 2 } }), (e) => /the app my-project didn't start/.test(e.message) && !/tskey-|ghp_/.test(e.message));
-    assert.doesNotMatch(JSON.stringify(nas.state.apps['my-project'].config), /tskey-/);
+    await assert.rejects(upBackend({ ...base, nas, ...keys(), waitOptions: { tries: 2 } }), (e) => /the app my-project didn't start/.test(e.message) && !/fake-auth-key|fake-pull-token/.test(e.message));
+    assert.doesNotMatch(JSON.stringify(nas.state.apps['my-project'].config), /fake-auth-key/);
     // An error from the NAS that repeats the parameters is scrubbed.
     const failing = fakeNas({ failOn: 'app.create' });
     await assert.rejects(upBackend({ ...base, nas: failing, ...keys() }), (e) => /app\.create failed/.test(e.message) && !e.message.includes(KEY) && !e.message.includes(PULL));
@@ -479,7 +479,7 @@ describe('spin-up: the jobs', () => {
     const dir = tempDir();
     const out = join(dir, 'out');
     write(dir, 'out', '');
-    const token = 'nfp_faketoken0123';
+    const token = 'fake-netlify-token-0123';
     const fetchImpl = async (url, { headers }) => {
       assert.equal(headers.Authorization, `Bearer ${token}`);
       return { ok: false, status: 401, text: async () => JSON.stringify({ message: `bad token ${token}` }) };
@@ -510,7 +510,7 @@ describe('spin-up: the jobs', () => {
 
   it('up-backend, through the NAS client, with the inputs as variables', async () => {
     const nas = fakeNas();
-    const env = { PROJECT: 'my-project', REPOSITORY: 'o/my-project', PRIVATE: 'true', SITE_URL: SITE, FUNNEL_PATHS: JSON.stringify(PATHS), TRUENAS_APPS_DATASET: 'tank/apps', GHCR_PULL_TOKEN: PULL, TS_OAUTH_SECRET: 'tskey-client-secret' };
+    const env = { PROJECT: 'my-project', REPOSITORY: 'o/my-project', PRIVATE: 'true', SITE_URL: SITE, FUNNEL_PATHS: JSON.stringify(PATHS), TRUENAS_APPS_DATASET: 'tank/apps', GHCR_PULL_TOKEN: PULL, TS_OAUTH_SECRET: 'fake-client-secret' };
     const r = await spinJob('up-backend', env, { connectNas: async () => nas, createAuthKey: async () => KEY, wait: async () => {} });
     assert.equal(r.code, 0, r.stderr);
     assert.match(r.stdout, /✓ the app: running$/);

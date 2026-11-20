@@ -7,7 +7,7 @@ depends_on: [T-0003, T-0007, T-0008]  # tasks that must be Done first
 decisions: [G-0007, G-0009, G-0011, G-0018, G-0019, G-0020, G-0023, G-0026, G-0027, G-0028, G-0029]
 raised_on: 2026-11-20
 done_on: ""
-result: ["https://github.com/SanderGeraedts/harness/pull/11"]                  # PR URLs
+result: ["https://github.com/SanderGeraedts/harness/pull/11", "https://github.com/SanderGeraedts/harness/pull/17"]                  # PR URLs
 ---
 
 # Goal
@@ -426,3 +426,71 @@ One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
 - 2026-11-20 architect: raised Q-001, how the NAS pulls a private project's backend image.
   Handed T-0007 to the developer and T-0008 to the UX designer. This task's own slice waits
   for both, and its live proof for Q-001.
+- 2026-11-20 developer: built slice 3 in #17 (0.7.0). `harness infra up <project>` reads
+  `backend/funnel.json` from the default branch and refuses a bad list, checks the four
+  secrets and the runner (a missing `GHCR_PULL_TOKEN` is a warning: G-0030), starts
+  `project-up.yml` and prints each job's lines in order, naming only the site's address.
+  `harness infra down <project>` lists what would go and exits 2; with `--confirmed` it starts
+  `project-down.yml` (`inspect` refuses a dataset or app of the name that spin-up didn't make
+  before anything goes, then `site`, then `backend`). `create` checks the infrastructure
+  before writing anything and ends by waiting for the first `backend` run and spinning up
+  (`--no-infra`). The logic is in `lib/infra/` (`project`, `netlify`, `tailscale`,
+  `backend`, `checks`, `spinup`) with `test/spinup.test.mjs` against fakes and a stored
+  compose file (`test/fixtures/backend-compose.json`). T-0008's open point: the reusable
+  `auto-merge.yml` takes `wait-for`, and the template's caller runs on `[CI, Backend]` with
+  `wait-for: CI,Backend`, so a pull request whose Backend run failed doesn't merge; a test runs
+  that bash and jq on sample runs (CI only, where jq is). `pnpm test`: `tests 257, pass 256,
+  fail 0, skipped 1` (the jq test, here). `pnpm run self-test`: `✓ self-test passed: 30
+  steps, harness 0.7.0 in a throwaway project`. `pnpm run check`: tasks, global decisions and
+  agents ✓. In CI on #17: `checks / checks` (`tests 254, pass 254, skipped 0`; the self-test 30
+  steps), `template-e2e` (32 steps) and `template-backend / image` green.
+- 2026-11-20 developer: live proof, on a private throwaway `harness-spinup-proof`, with the
+  infrastructure repository pinned to this branch's commits through its own pull requests.
+  `harness create harness-spinup-proof --sync` made the repository, CI green, the calm
+  ruleset line, then waited for the first `backend` run on `main`: **the publish job ran for
+  the first time and succeeded**. Its spin-up stopped at the `site` job: Netlify's free plan
+  answered 403 "Upgrade your Netlify account to set specific scopes" to a site variable with
+  scopes (fixed: no scopes; a site made but not marked is deleted again; an empty, unlinked,
+  unmarked site of the project's name is taken). The `address` job already said ✓ for MagicDNS,
+  HTTPS and Funnel for `tag:harness`. One EOF from GitHub's API then ended a second `infra up`
+  while its run went on (fixed: a few failed looks are let pass). That run ended green on all
+  four jobs: the site taken and linked through the app's installation read from another site
+  of the account, the dataset marked, `pb_data` and `tailscale`, the snapshot task and a first
+  snapshot, the pull token on the NAS, the app with a one-use key and then without it, and
+  every outside check ✓ (health 200; admin screen and superuser sign-in 404; admin port silent;
+  CORS for the site only; `BACKEND_URL` for production; the production build; the site's
+  `_headers` with the backend in `connect-src`, which proves T-0008's open point; the bundle
+  holds the address). A third `infra up` said "already there" for every step and ended
+  `Done.` (Done-when 6).
+- 2026-11-20 developer: checked from outside, printing no backend address. Production: the
+  site 200, a headless browser shows the sign-in heading and no demo band, it asks only the
+  site's host before signing in, `connect-src 'self' <the backend>`; the backend: `/api/health`
+  200, the items list signed out 200 with 0 items and CORS for the site, a made-up sign-in 400,
+  sign-up 403, `/_/`, the superuser sign-in and `/api/collections` 404. A draft pull request
+  (#1 in the throwaway) got a deploy preview: the band "Demo data · sync is off", no sign-in
+  heading, 7 demo items, `connect-src 'self'`, no request beyond its own host, and of the 9
+  files it serves none names a tailnet address (production's bundle does). Through `harness nas
+  --remote`, filtered to the project's dataset: one snapshot task, enabled, recursive, every
+  hour, kept 2 weeks, last run FINISHED; 6 snapshots (2 each on the dataset, `pb_data` and
+  `tailscale`). The app: RUNNING. A search of the throwaway repository's files and history
+  for `tskey-`, `.ts.net`, `/mnt/`, `nfp_`, `ghp_` found nothing, and IPv4 only `0.0.0.0` and
+  `127.0.0.1`; this pull request's diff likewise (its test stand-ins for keys were renamed so
+  no real prefix appears). Done-when 3 to 7 hold, except the sync between two devices.
+- 2026-11-20 developer: for the architect. (1) `gh api user/installations` needs a GitHub App
+  user token, so `create` can't see Netlify's app as the Notes planned (403 with gh's token);
+  the `site` job reads the installation from a site of the account linked through it, or
+  `--netlify-installation` / `netlifyInstallation` in the settings file. (2) The pull token
+  reaches the NAS as one `app.registry` entry for `ghcr.io` (TrueNAS pulls a custom app's
+  images with the NAS's registry credentials) and Watchtower's `REPO_PASS` in the app;
+  G-0030 says "the app's configuration". (3) Netlify variables have every scope on a free
+  plan, so `BACKEND_URL` (production context only) also reaches functions; it isn't a secret.
+  (4) Behind Funnel, Tailscale's proxy sends `X-Forwarded-For`; PocketBase's rate limit
+  shares one address until its `trustedProxy` setting names that header. That is a template
+  migration and a decision on trusting the header: not built here. (5) A refused-change
+  policy for the outbox stays open from T-0008.
+- 2026-11-20 developer: Remaining: Done-when 8, sync on two devices, needs the Engineer to
+  make the superuser and a user (see *What stays a human's*); Done-when 9 and 10, teardown
+  with `harness infra down harness-spinup-proof --confirmed` after the Engineer's yes in chat,
+  then the machine in the tailnet's admin console, the throwaway repository and its image;
+  the tester's pass; after the tag `v0.7.0`, `harness infra init` once more to pin the
+  infrastructure repository to it.
