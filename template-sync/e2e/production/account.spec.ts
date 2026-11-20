@@ -133,8 +133,10 @@ test('a sign-in whose date passed, on a device that is offline, changes nothing 
   await page.evaluate(() => navigator.serviceWorker.ready)
   await page.reload()
   await page.evaluate(() => navigator.serviceWorker.ready)
-  await letTokenRunOut(page)
+  // Offline first: a sync that is still running would renew the token again.
   await context.setOffline(true)
+  await expect(syncLineOf(page)).toHaveText(t.syncOfflineIdle)
+  await letTokenRunOut(page)
   await page.reload()
 
   await expect(page.getByRole('heading', { level: 1, name: t.items })).toBeVisible()
