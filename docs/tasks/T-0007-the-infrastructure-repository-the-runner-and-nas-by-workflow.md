@@ -141,7 +141,122 @@ runner status` prints one line, `harness-nas: online` (or `offline`, or `not ins
 
 # Test
 
-Not yet tested.
+2026-11-20, tester, on `47818d1` in a fresh worktree. **Sent back**: the generated
+`project-up.yml` is not valid YAML (Done-when 2 and 5 test a generated repository that has a
+broken workflow). Everything else held.
+
+## Checks (Done-when 1)
+
+- `pnpm install --frozen-lockfile`: "Done in 277ms using pnpm v12.18.0".
+- `pnpm test`: "tests 173, pass 173, fail 0".
+- `pnpm run check`: "✓ tasks: 9 tasks, index in step / ✓ global decisions: 29 records, index
+  complete / ✓ agents: 4 definitions".
+- `pnpm run self-test` (no `TRUENAS_*` set): "✓ self-test passed: 27 steps, harness 0.6.0 in
+  a throwaway project"; steps 10 and 13 to 17 are the Done-when 1 steps.
+- `node scripts/self-test.mjs --e2e`: "✓ self-test passed: 29 steps, harness 0.6.0 in a
+  throwaway project" (no Docker here, so the sign-in and sync e2e tests were left out, as
+  step 28 says).
+
+## Live, with every `TRUENAS_*` variable unset in the shell (the count printed 0)
+
+On the home LAN, so this is not Done-when 4; it proves only that the remote path needs no
+`TRUENAS_*` on the machine.
+
+- `harness nas --remote core.ping`: `"pong"`, exit 0, 31 s.
+- `harness nas --remote system.info`: exit 0; TrueNAS 25.10.8, 16 cores, up about 34 hours
+  (host name, serial and the rest not copied here).
+- `harness infra check`: exit 0, ✓ for the four secrets, "· the secret GHCR_PULL_TOKEN isn't
+  there yet", "✓ the runner's configuration: TRUENAS_HOST, TRUENAS_CERT_SHA256,
+  TRUENAS_APPS_DATASET", "✓ the NAS answers: core.ping gave "pong"".
+- `harness infra runner status`: "harness-nas: online (self-hosted, Linux, X64,
+  harness-nas)", exit 0.
+- `harness infra init --harness-ref <the pinned merge commit>` a second time: "✓ files:
+  nothing changed", ✓ environment, ✓ four secrets, · GHCR_PULL_TOKEN, "✓ the runner
+  harness-nas: online", exit 0. (Not run without `--harness-ref`: that would pin the
+  repository to `v0.6.0`, which doesn't exist yet.)
+
+## Tried to break it
+
+- `nas --remote pool.dataset.delete '["x"]'` and `nas --remote app.delete
+  '["harness-runner"]'`: both "… is destructive (G-0027): ask the Engineer in chat, then
+  rerun with --confirmed.", exit 2. The newest run id on the infrastructure repository was
+  the same before and after: no workflow started.
+- Malformed params: `'[oops'` gives "params must be a JSON array: Unexpected token …", exit
+  1; `'{"a":1}'` gives "params must be a JSON array, like '["<app>"]'.", exit 1. No run
+  started.
+- A method that doesn't exist (`no.such_method`): a run, then "no.such_method failed: Method
+  does not exist" and the JSON-RPC error, exit 1.
+- No repository set: "✗ No private infrastructure repository is set (G-0026). …", exit 1.
+  No method: the usage line, exit 1.
+- `infra init --repo <another owner>/does-not-exist`: "✗ only the Engineer may change the
+  infrastructure (G-0026): … can't see …, and it can only be created under …", exit 1.
+  `infra runner status` on a repository that doesn't exist: "… can't see …", exit 1. `--repo
+  foo`: "isn't a repository as owner/name". `--harness-ref 'a b;rm'`: "isn't a tag, branch
+  or commit". (Not tried: `init` on a non-existent repository under the Engineer's own
+  account, because that creates one.)
+- No runner picks up the job (read, not run): `runWorkflow` polls every 3 s; after 20 polls
+  in `queued`/`waiting`/`pending` (about a minute) it asks for the runner and, when it isn't
+  online, cancels the run and stops with "the runner harness-nas on the NAS is offline, so
+  the run was cancelled: <url> / See harness infra runner status." A run that never ends
+  stops after 400 polls (about 20 minutes) with "the run is still going after a long wait".
+  The job itself has `timeout-minutes: 30` (nas) and 15 (check). Tested in
+  `test/infra.test.mjs` ("cancels a run that waits for an offline runner").
+- A non-Engineer (read, not run): `requireListedEngineer` refuses a login not in
+  `.harness/engineers` before any setting is read; `requireAdmin` refuses without admin
+  rights and refuses a repository that isn't private. Covered by `test/infra.test.mjs` and
+  self-test step 16.
+
+## Leaks (Done-when 5)
+
+- The PR diff and a fresh clone of the infrastructure repository, searched for the NAS's
+  host, its host name (from `system.info`), the fingerprint (with and without colons), IPv4
+  addresses, `.ts.net`, `/mnt/` and the infrastructure repository's name: no hits, except
+  the Log line that names these words and `secrets.NETLIFY_AUTH_TOKEN` (a false `ts.net`
+  match).
+- The six latest workflow runs' logs: secrets show as `***` only (`TRUENAS_API_KEY`, the
+  checkout token); no registration token, no `ghp_`/`ghs_`/PAT, and neither the host, host
+  name nor fingerprint in plain text. The result is in the log as base64 marker lines, by
+  design, in a private repository.
+- `harness nas --remote app.config '["harness-runner"]'`: one service, image
+  `ghcr.io/actions/actions-runner:2.338.2`; environment names `HOME, RUNNER_LABELS,
+  RUNNER_NAME, RUNNER_URL, TRUENAS_APPS_DATASET, TRUENAS_CERT_SHA256, TRUENAS_HOST`: **no
+  `RUNNER_TOKEN`** (the name appears only in the entrypoint script, which reads and unsets
+  it); one volume `<redacted>:/state`; **no container socket**; not privileged.
+- The environment `Prod` holds the four secret names; the only collaborator is the
+  Engineer.
+
+## The workflows, read
+
+- `workflow_call` inputs reach the job as environment variables, never interpolated into
+  `run:`; `environment: ${{ inputs.environment }}`; `permissions: contents: read`;
+  `concurrency: harness-nas`, no cancelling; `runs-on: [self-hosted, harness-nas]`; the
+  harness checked out at the pinned ref with `persist-credentials: false`. Good.
+- The destructive list is checked again on the runner: `infra job nas` goes through
+  `runLocal`, which exits 2 for a destructive method unless `NAS_CONFIRMED` is `true`. But
+  `confirmed` is a dispatch input, so whoever can start `nas.yml` by hand can set it. Today
+  that is only the Engineer (sole collaborator, private repository). See defect 2.
+
+## Defects
+
+1. **Blocking: the generated `project-up.yml` is not valid YAML.** Its `sync` input's
+   description is the plain scalar `The project syncs: it gets a backend`, and `: ` inside a
+   plain scalar is a YAML error ("mapping values are not allowed here", line 18, column 39).
+   To see it: `node bin/harness.mjs infra init --dir out`, then parse
+   `out/.github/workflows/project-up.yml` with any YAML parser; or the infrastructure
+   repository's Actions tab, where every push to `main` has a failed run of
+   `.github/workflows/project-up.yml` ("This run likely failed because of a workflow file
+   issue", 8 of the last 30 runs). The Log says the stubs exist "so the callers are valid
+   now"; this one isn't. No test parses the generated workflows: one that loads each with a
+   YAML parser (and quotes every description) would catch it.
+2. Not blocking, for the architect: the `Bash(*--confirmed*)` ask rule doesn't match `gh
+   workflow run nas.yml -f confirmed=true -f method=…`, so an agent in the Engineer's session
+   could start a destructive call on the NAS without the permission prompt, bypassing the
+   CLI's check. An ask rule for `gh workflow run*` (or `*confirmed=true*`), or a protection
+   rule on the `Prod` environment, would close it.
+3. Not blocking: `harness infra runner status` and `infra check` refuse with "only the
+   Engineer may **change** the infrastructure", though they change nothing.
+
+**Verdict: sent back to the developer** for defect 1. The pull request stays a draft.
 
 # Log
 
@@ -202,3 +317,8 @@ One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
   more so the infrastructure repository is pinned to the tag instead of this branch's
   commit (Done-when 2 then shows "nothing changed" on a second run); Done-when 4 from a
   machine off the home network; the tag itself (Done-when 6).
+- 2026-11-20 tester: sent back: the generated `project-up.yml` is not valid YAML (its `sync`
+  description holds `: `), so every push to the infrastructure repository has a failed run;
+  every other check passed (see *Test*). Remaining: the fix and a test that parses every
+  generated workflow; then a new test pass, Done-when 4 off the home network, the tag
+  `v0.6.0`, and `infra init` re-pinning to it.
