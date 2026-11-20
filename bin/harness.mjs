@@ -12,6 +12,10 @@ const USAGE = `harness <command>
   sync                           copy or refresh the files the harness generates in a project
   init [login...] [--default-branch <name>]
                                  set an existing repository up, with these Engineers
+  adopt [--write] [login...] [--default-branch <name>]
+                                 for a repository that already has registries: report what is
+                                 there, what would be added and which project decisions look
+                                 like a global one; --write adds what is missing, overwrites nothing
   hooks                          point git at .githooks (the project's prepare script)
   protect <check>... [--repo owner/name] [--dry-run]
                                  create or update the ruleset on the default branch
@@ -28,6 +32,7 @@ const COMMANDS = {
   waiting: () => import('../lib/waiting.mjs').then((m) => m.main),
   sync: () => import('../lib/sync.mjs').then((m) => m.main),
   init: () => import('../lib/init.mjs').then((m) => m.main),
+  adopt: () => import('../lib/adopt.mjs').then((m) => m.main),
   hooks: () => import('../lib/sync.mjs').then((m) => m.hooksMain),
   protect: () => import('../lib/protect.mjs').then((m) => m.main),
   nas: () => import('../lib/nas.mjs').then((m) => m.main),

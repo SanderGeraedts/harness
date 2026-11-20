@@ -1,6 +1,8 @@
 # The harness's own CI (G-0015): the unit tests, then the self-test, which packs the
 # harness, installs it into a throwaway project and runs its commands there. It goes
-# through the reusable CI workflow, so that is tested too.
+# through the reusable CI workflow, so that is tested too. The auto-merge workflow starts it
+# on main after a merge (workflow_dispatch): a merge made with GITHUB_TOKEN starts no push
+# workflows.
 name: Harness CI
 
 on:
@@ -8,6 +10,7 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -23,4 +26,10 @@ jobs:
       harness: node bin/harness.mjs
       checks: |
         pnpm test
-        pnpm run self-test
+        pnpm run self-test --keep-on-failure
+      # The throwaway projects of a failed self-test, to see what went wrong.
+      artifacts: |
+        /tmp/harness-self-test-*/
+        !/tmp/harness-self-test-*/*/node_modules/
+      artifact-name: self-test-project
+      artifacts-only-on-failure: true

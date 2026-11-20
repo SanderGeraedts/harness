@@ -7,7 +7,7 @@ date: YYYY-MM-DD
 decided_by: engineer        # engineer | requester | the agent role, e.g. architect
 overrules: []               # global decisions this project sets aside, e.g. [G-0017]
 replaces: []
-replaced_by: []
+replaced_by: []             # what replaced this one; may be a global decision, e.g. [G-0016]
 resolves: []                # questions this answers, e.g. [Q-001]
 tags: []
 ---

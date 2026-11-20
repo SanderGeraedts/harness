@@ -5,6 +5,11 @@
 # workflow_run workflows from the default branch, so a pull request can't change how its own
 # merge is decided. The caller grants the permissions; this workflow asks for none itself.
 #
+# A merge made with GITHUB_TOKEN starts no push workflows, so after merging this workflow
+# starts the caller's CI workflow (ci-workflow) on the default branch itself. For that the
+# CI workflow needs a `workflow_dispatch:` trigger and the caller grants `actions: write`.
+# Without either, the merge still happens and the step leaves a warning.
+#
 #   on:
 #     workflow_run:
 #       workflows: [CI]
@@ -12,7 +17,7 @@
 #   permissions:
 #     contents: write
 #     pull-requests: write
-#     actions: write        # only needed with backend-workflow
+#     actions: write        # to start CI on the default branch, and backend-workflow
 #   jobs:
 #     merge:
 #       uses: SanderGeraedts/harness/.github/workflows/auto-merge.yml@vX.Y.Z
@@ -21,6 +26,12 @@ name: Auto-merge (reusable)
 on:
   workflow_call:
     inputs:
+      ci-workflow:
+        description: >-
+          The file name of the caller's CI workflow, started on the default branch after a
+          merge. It needs a workflow_dispatch trigger. Empty starts nothing.
+        type: string
+        default: ci.yml
       backend-workflow:
         description: >-
           The workflow file to start on the default branch after merging a pull request that
@@ -129,6 +140,19 @@ jobs:
           # --match-head-commit: refuse if the pull request moved on after this CI run.
           gh pr merge "$PR" --repo "$REPO" --squash --match-head-commit "$HEAD_SHA"
           gh api -X DELETE "repos/$REPO/git/refs/heads/$BRANCH" >/dev/null 2>&1 || true
+
+      # Never fails the job: the merge has happened, and a project that hasn't given its CI
+      # a workflow_dispatch trigger or this workflow `actions: write` gets a warning instead.
+      - name: Start CI on the default branch
+        if: steps.decide.outputs.action == 'merge' && inputs.ci-workflow != ''
+        env:
+          CI_WORKFLOW: ${{ inputs.ci-workflow }}
+        run: |
+          if gh workflow run "$CI_WORKFLOW" --repo "$REPO" --ref "$DEFAULT_BRANCH"; then
+            echo "Started $CI_WORKFLOW on $DEFAULT_BRANCH."
+          else
+            echo "::warning::Could not start $CI_WORKFLOW on $DEFAULT_BRANCH. It needs a workflow_dispatch trigger, and the calling workflow needs the permission actions: write."
+          fi
 
       - name: Start the backend workflow
         if: >-

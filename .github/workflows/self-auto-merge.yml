@@ -1,6 +1,6 @@
 # The harness's own auto-merge (G-0006): a green pull request that isn't a draft merges
 # itself, unless it touches the global registry. Then it is labelled and waits for the
-# Engineer.
+# Engineer. After a merge it starts the harness's CI on main.
 name: Harness auto-merge
 
 on:
@@ -11,9 +11,11 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  actions: write
 
 jobs:
   merge:
     uses: ./.github/workflows/auto-merge.yml
     with:
+      ci-workflow: self-ci.yml
       hold-paths: "^decisions/"

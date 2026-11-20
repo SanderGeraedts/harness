@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
-import { init } from '../lib/init.mjs';
+import { init, parseArgs } from '../lib/init.mjs';
 import { HARNESS_ROOT } from '../lib/paths.mjs';
-import { generatedFiles, mergeSettings, requiredSettings, staleFiles, sync } from '../lib/sync.mjs';
+import { SECTION_END, SECTION_START, generatedFiles, mergeSettings, projectSection, requiredSettings, staleFiles, sync, withProjectSection } from '../lib/sync.mjs';
 import { cleanUp, tempProject, write } from './helpers.mjs';
 
 after(cleanUp);
@@ -106,6 +106,59 @@ describe('sync', () => {
   });
 });
 
+describe("sync: the registry README's project section", () => {
+  const README = 'docs/decisions/README.md';
+  const template = () => readFileSync(join(HARNESS_ROOT, 'templates/decisions-README.md'), 'utf8').replace(/\r\n/g, '\n');
+  const own = '\n\n### Shop decisions\n\nThey live in `docs/shop/`.\n\n';
+  const withOwn = (text) => text.replace(/(<!-- harness:project-section:start -->)[\s\S]*(<!-- harness:project-section:end -->)/, `$1${own}$2`);
+
+  it('the template has one pair of marker lines, at the end', () => {
+    assert.equal(projectSection(template()), '\n\nNothing yet.\n\n');
+    assert.ok(template().endsWith(`${SECTION_END}\n`));
+    assert.ok(template().indexOf(SECTION_START) > template().indexOf('## Project notes'));
+  });
+
+  it('keeps what the project wrote between the markers, and is not stale because of it', () => {
+    const dir = tempProject();
+    sync(dir);
+    write(dir, README, withOwn(template()));
+    assert.deepEqual(staleFiles(dir), []);
+    assert.deepEqual(sync(dir), []);
+    assert.equal(readFileSync(join(dir, README), 'utf8'), withOwn(template()));
+  });
+
+  it('refreshes everything outside the markers and keeps the section', () => {
+    const dir = tempProject();
+    sync(dir);
+    write(dir, README, withOwn(template()).replace('# Decision registry', '# Our registry').replace(/\n/g, '\r\n'));
+    assert.deepEqual(staleFiles(dir), [README]);
+    assert.deepEqual(sync(dir), [README]);
+    assert.equal(readFileSync(join(dir, README), 'utf8'), withOwn(template()));
+  });
+
+  it('replaces a README from before the markers existed with the template', () => {
+    const dir = tempProject();
+    write(dir, README, '# Decision registry\n\nThe old generated text.\n');
+    assert.deepEqual(sync(dir).filter((f) => f === README), [README]);
+    assert.equal(readFileSync(join(dir, README), 'utf8'), template());
+  });
+
+  it('refuses to guess when a marker line is missing, repeated or out of order', () => {
+    for (const damaged of [
+      template().replace(SECTION_END, ''),
+      template().replace(SECTION_START, ''),
+      `${template()}${SECTION_START}\n`,
+      template().replace(SECTION_START, 'x').replace(SECTION_END, SECTION_START).replace('x', SECTION_END),
+    ]) {
+      const dir = tempProject();
+      write(dir, README, damaged);
+      assert.throws(() => sync(dir), /the project section's marker lines are damaged/);
+      assert.equal(readFileSync(join(dir, README), 'utf8'), damaged);
+    }
+    assert.equal(withProjectSection('a', undefined), 'a');
+  });
+});
+
 describe('init', () => {
   it('creates the registries, the Engineers, the lessons and the thin agent files, then syncs', () => {
     const dir = tempProject();
@@ -134,5 +187,26 @@ describe('init', () => {
     assert.equal(readJson(dir, 'package.json').scripts.prepare, 'our-own');
     assert.equal(readFileSync(join(dir, '.gitattributes'), 'utf8'), '* text=auto\n.githooks/* text eol=lf\n');
     assert.match(readFileSync(join(dir, '.harness/engineers'), 'utf8'), /\nengineer-one\nengineer-two\n$/);
+  });
+
+  it('with overwrite: false it leaves existing generated files alone too', () => {
+    const dir = tempProject();
+    write(dir, 'docs/decisions/README.md', 'ours\n');
+    write(dir, '.githooks/pre-push', 'ours\n');
+    write(dir, 'docs/tasks/index.md', 'ours\n');
+    const done = init(dir, { logins: ['engineer-one'], overwrite: false });
+    for (const f of ['docs/decisions/README.md', '.githooks/pre-push', 'docs/tasks/index.md']) {
+      assert.equal(readFileSync(join(dir, f), 'utf8'), 'ours\n');
+      assert.ok(!done.includes(`wrote ${f}`), f);
+    }
+    assert.ok(done.includes('wrote .claude/agents/tester.md'));
+    assert.deepEqual(staleFiles(dir), ['.githooks/pre-push', 'docs/decisions/README.md']);
+  });
+
+  it('reads its arguments', () => {
+    assert.deepEqual(parseArgs(['a', '--default-branch', 'trunk', 'b']), { logins: ['a', 'b'], branch: 'trunk' });
+    assert.deepEqual(parseArgs([]), { logins: [], branch: undefined });
+    assert.deepEqual(parseArgs(['--default-branch']), { error: '--default-branch needs a name' });
+    assert.deepEqual(parseArgs(['a', '--force']), { error: 'unknown option --force' });
   });
 });
