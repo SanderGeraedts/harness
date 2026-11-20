@@ -385,3 +385,4 @@ One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
 - 2026-11-20 architect: raised Q-001, how the NAS pulls a private project's backend image.
   Handed T-0007 to the developer and T-0008 to the UX designer. This task's own slice waits
   for both, and its live proof for Q-001.
+- 2026-11-20 architect: Q-001 answered by the Engineer (option C), recorded as G-0030: a read-only pull token, `GHCR_PULL_TOKEN`, as a fifth secret while a repository is private; none once it is public. The image pull no longer waits.
