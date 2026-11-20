@@ -7,7 +7,7 @@ depends_on: [T-0002]        # tasks that must be Done first
 decisions: [G-0004, G-0007, G-0016, G-0017, G-0019, G-0020, G-0021, G-0024, G-0025]
 raised_on: 2026-11-20
 done_on: ""
-result: []                  # PR URLs
+result: ["https://github.com/SanderGeraedts/harness/pull/5"]  # PR URLs
 ---
 
 # Goal
@@ -86,12 +86,95 @@ space drops below the arrow. Contrast of the default accent with its text is 4.6
 
 # Test
 
+**Verdict: passed,** on the second run (commit `dd14f0d`). The first run sent the task back;
+it is kept below, after the second.
+
+## Second run
+
+Tester, 2026-11-20, on commit `dd14f0d` (Node 24.22.1, pnpm 12.18.0, Windows).
+
+The checks, as run:
+
+- `pnpm install --frozen-lockfile`: `Lockfile is up to date`, exit 0.
+- `pnpm test`: `tests 111`, `pass 111`, `fail 0`.
+- `pnpm run check`: `✓ tasks: 5 tasks, index in step`, `✓ global decisions: 25 records,
+  index complete`, `✓ agents: 4 definitions`.
+- `node scripts/self-test.mjs --e2e`: `✓ self-test passed: 20 steps, harness 0.3.0 in a
+  throwaway project`.
+- CI on the pull request at `dd14f0d`: `checks / checks` and `template-e2e` green.
+
+A fresh project, `create trial-two --no-github` with the branch's commit as the ref, the
+serif font, `--git-name` and `--git-email`, the Engineer given three times in different
+spellings, and a title and purpose holding `$&`, `$'`, `` $` `` and `$1`:
+
+```
+✓ the app, from the template: 49 files
+✓ harness initialised: Engineers <my login>, engineer-two; 5 decisions and the first tasks recorded
+✓ tasks: 2 tasks, index in step
+✓ decisions: 5 records, index complete, 0 overrules valid
+✓ engineers: 2 listed
+✓ generated files: current
+✓ first commit on main
+```
+
+In it: install and type-check exit 0; `Tests 26 passed (26)`; the build; `harness check`
+exit 0; `pnpm run test:e2e`: `11 passed (12.2s)`, with the two new width tests and the
+first-line test. No placeholder left. `AGENTS.md` is 30 lines and its first paragraph holds
+the title and purpose exactly as typed. The first commit's author and committer, and the
+repository's own `user.email`, are the ones given.
+
+The findings of the first run, each tried again:
+
+1. **The list's width: fixed.** My own tests at 320, 375 and 390px, in light and dark, with
+   three long titles (120 letters without a space, a long sentence, an address without
+   spaces) and a note of a long sentence plus 500 letters without a space: the new form,
+   the item, the item with the delete question, the edit form, the list, `/design` and
+   "Not found" are all exactly as wide as the screen, no element reaches past either edge,
+   and every badge is on the screen. Looked at the screenshots: titles wrap beside the
+   badge, the note is one line with an ellipsis.
+2. `$` patterns: fixed, as above.
+3. A failed run: fixed. With a ref that doesn't exist the folder is removed, or, when it
+   was there and empty, emptied (`Nothing was created: … is removed. Fix the cause and run
+   the command again.`), and the same command with a good ref then works. A folder that
+   was not empty is still refused and untouched.
+4. Engineers twice: fixed, whatever the case.
+5. The band reads "Demo data · sync is off".
+6. A card shows the first line of the note only.
+7. A long word breaks; see 1.
+
+Also tried:
+
+- `--git-email`: `s`, `a b@c.d`, `<a@b.c>`, `a@b@c`, `@b.c`, `a@` and an empty one are
+  refused with `"…" isn't an e-mail address` before anything is written; `a@b`, `s@x`, an
+  address with a plus sign and one with non-ASCII letters are taken. `--git-name` empty or
+  of spaces: `--git-name is empty`.
+- Run in a subfolder of a git repository, the default folder is next to that repository,
+  and the repository stays clean.
+- No regression: my tests of the first run pass again (slugs, renames, delete in place, odd
+  addresses, the order of the list, 320px in light and dark), and so does the production
+  build (no demo data, no `/design`).
+- The new lines of the diff hold no name, address or domain but `example.invalid`.
+
+Small things that remain, none blocking; they go to T-0006:
+
+- `--git-name=--global` and `--git-email -x@y.z` are taken as they are and end up, to the
+  letter, as the commit's author. Harmless, but a value that starts with a dash is surely
+  a mistake.
+- In the edit form's back link a title without a space drops below the arrow (the UX
+  designer's review names it).
+- When the copy itself fails, before the first step, the folder is not cleaned.
+
+Whether the ruleset should also require `template-e2e`: I think so, now that it holds the
+width tests; the ruleset is unchanged and the choice is the Engineer's.
+
+## First run
+
 Tester, 2026-11-20, on commit `a81a3ae` of the pull request's branch (Node 24.22.1, pnpm
 12.18.0, Windows). **Verdict: sent back.** `harness create` and every check pass, but the
 template's list screen is wider than a phone's screen (1 below), and the template is what
 every new project starts from. Six smaller findings follow; they don't block on their own.
 
-## The checks, as run
+### The checks, as run
 
 `pnpm install --frozen-lockfile`:
 
@@ -137,7 +220,7 @@ Done in 88ms using pnpm v12.18.0
 
 CI on the pull request at `a81a3ae`: `checks / checks` and `template-e2e` both green.
 
-## A project of my own
+### A project of my own
 
 `node bin/harness.mjs create trial-one --no-github --dir <temp>/trial-one --purpose "Keep a
 list of things to try." --accent "#AA3366" --font serif --engineer <my login> --harness-ref
@@ -177,7 +260,7 @@ In it:
   chunk is gone. A preview build given a backend address doesn't contain it; a production
   build does.
 
-## What I tried in the app
+### What I tried in the app
 
 My own Playwright tests against the preview, at 320 by 480 unless said:
 
@@ -193,7 +276,7 @@ My own Playwright tests against the preview, at 320 by 480 unless said:
   delete (the project's own test); light and dark.
 - **Failed:** the list screen, see 1.
 
-## What I tried on `create`
+### What I tried on `create`
 
 Each of these was refused with exit 1 and wrote nothing:
 
@@ -225,7 +308,7 @@ And these ran:
   `#111111`, the title is escaped in the page and quoted in the code; type-check, 24 unit
   tests, build, `harness check` and the 8 end-to-end tests pass. See 2 and 4.
 
-## `lib/create.mjs`, read
+### `lib/create.mjs`, read
 
 - **Outside the target folder:** nothing. The name can't hold a slash or dots; every write
   goes under `--dir`, which must be absent or empty; git, pnpm and the harness run with it
@@ -241,7 +324,7 @@ And these ran:
 - **A step that fails halfway** leaves what was done: see 3. After the repository exists,
   the messages do say what to do next.
 
-## The diff, searched
+### The diff, searched
 
 Every added line of the branch, the lockfile apart, for another project's name, a person's
 name, an e-mail address, a domain, an IP address, a tailnet or pool name: nothing. The only
@@ -249,7 +332,7 @@ addresses are `backend.example`, `localhost`, `example.invalid` and
 `github.com/engineer-one/my-project` in tests. The lockfile holds registry packages only.
 The throwaway repository of the live run is not named.
 
-## Findings
+### Findings
 
 1. **Blocking: the list screen is wider than the phone.** The list is a grid whose one
    column grows to the longest note, because the note is cut off with an ellipsis on one
@@ -361,3 +444,9 @@ One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
   Engineer: whether new repositories stay private by default now that a private one can't
   get a ruleset on a free plan; whether the ruleset should also require `template-e2e`; and
   deleting the throwaway repository of the live run.
+- 2026-11-20 tester: passed, on the second run (commit `dd14f0d`): every finding of the first
+  run is fixed and nothing else broke; the result is under *Test*. Remaining: the merge, CI
+  on `main` and the tag `v0.3.0`, which the tester does next. For the Engineer, none of it
+  a check of this task: whether new repositories stay private by default, whether the
+  ruleset should also require `template-e2e`, and deleting the throwaway repository of the
+  live run.
