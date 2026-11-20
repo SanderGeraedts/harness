@@ -49,6 +49,11 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The created project installs its browser into this cache (see ci.yml on --with-deps).
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('template/pnpm-lock.yaml') }}
       - run: node scripts/self-test.mjs --e2e
 
   # The template's backend (G-0019): the project `harness create --sync` makes, through the

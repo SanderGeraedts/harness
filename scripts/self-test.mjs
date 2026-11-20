@@ -378,7 +378,8 @@ try {
     // from its own backend/ with Docker, or uses the one at BACKEND_TEST_URL. CI has Docker.
     const hasBackend = Boolean(process.env.BACKEND_TEST_URL) || Boolean(process.env.CI) || sh('docker info').status === 0;
     step(`the project that syncs passes its end-to-end tests${hasBackend ? ', with the sign-in and sync against a throwaway backend' : ''}`);
-    ok(`pnpm exec playwright install ${process.env.CI ? '--with-deps ' : ''}chromium`, syncs.in);
+    // Both projects pin the same Playwright, so this one install serves both.
+    ok('pnpm exec playwright install chromium', syncs.in);
     const e2e = ok('pnpm exec playwright test --reporter=list', { ...syncs.in, env: { E2E_PORT: '4317' } });
     assert.match(e2e, /\d+ passed/);
     assert.doesNotMatch(e2e, /\d+ (failed|flaky)/);
