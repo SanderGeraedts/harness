@@ -1,0 +1,146 @@
+# Reusable auto-merge (G-0011): a green pull request into the default branch merges itself,
+# unless it is a draft.
+#
+# Call it from a workflow in the project that runs when CI completes. GitHub runs
+# workflow_run workflows from the default branch, so a pull request can't change how its own
+# merge is decided. The caller grants the permissions; this workflow asks for none itself.
+#
+#   on:
+#     workflow_run:
+#       workflows: [CI]
+#       types: [completed]
+#   permissions:
+#     contents: write
+#     pull-requests: write
+#     actions: write        # only needed with backend-workflow
+#   jobs:
+#     merge:
+#       uses: SanderGeraedts/harness/.github/workflows/auto-merge.yml@vX.Y.Z
+name: Auto-merge (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      backend-workflow:
+        description: >-
+          The workflow file to start on the default branch after merging a pull request that
+          touched backend-paths, e.g. backend.yml. A merge made with GITHUB_TOKEN starts no
+          push workflows, so the publish has to be started by hand.
+        type: string
+        default: ""
+      backend-paths:
+        description: An extended regular expression matched against each changed file's path.
+        type: string
+        default: ""
+      hold-paths:
+        description: >-
+          An extended regular expression. A pull request that touches a matching path is
+          labelled as waiting for the Engineer instead of merged.
+        type: string
+        default: ""
+      hold-label:
+        description: The label a held pull request gets.
+        type: string
+        default: waits-for-engineer
+
+jobs:
+  merge:
+    # Only for a CI run that passed, on a pull request from this repository.
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+    steps:
+      - name: Find the pull request for this run
+        id: pr
+        run: |
+          pr=$(gh api "repos/$REPO/commits/$HEAD_SHA/pulls" \
+            --jq '[.[] | select(.state == "open" and .head.sha == env.HEAD_SHA)][0] // empty')
+          if [ -z "$pr" ]; then
+            echo "No open pull request has $HEAD_SHA as its head; nothing to do."
+            exit 0
+          fi
+          echo "number=$(jq -r .number <<<"$pr")" >> "$GITHUB_OUTPUT"
+          echo "draft=$(jq -r .draft <<<"$pr")" >> "$GITHUB_OUTPUT"
+          echo "branch=$(jq -r .head.ref <<<"$pr")" >> "$GITHUB_OUTPUT"
+          echo "base=$(jq -r .base.ref <<<"$pr")" >> "$GITHUB_OUTPUT"
+
+      - name: Decide
+        id: decide
+        if: steps.pr.outputs.number != ''
+        env:
+          PR: ${{ steps.pr.outputs.number }}
+          DRAFT: ${{ steps.pr.outputs.draft }}
+          BASE: ${{ steps.pr.outputs.base }}
+          HOLD_PATHS: ${{ inputs.hold-paths }}
+        run: |
+          if [ "$DRAFT" = "true" ]; then
+            echo "#$PR is a draft: it waits for the tester to mark it ready."
+            echo "action=skip" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # A pull request stacked on another branch waits until its base merges and GitHub
+          # retargets it.
+          if [ "$BASE" != "$DEFAULT_BRANCH" ]; then
+            echo "#$PR targets $BASE, not $DEFAULT_BRANCH: not merging."
+            echo "action=skip" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          gh api --paginate "repos/$REPO/pulls/$PR/files" \
+            --jq '.[] | .filename, (.previous_filename // empty)' > "$RUNNER_TEMP/files.txt"
+          if [ -n "$HOLD_PATHS" ] && grep -Eq -- "$HOLD_PATHS" "$RUNNER_TEMP/files.txt"; then
+            echo "#$PR touches a held path: it waits for the Engineer."
+            echo "action=hold" >> "$GITHUB_OUTPUT"
+          else
+            echo "action=merge" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Hold for the Engineer
+        if: steps.decide.outputs.action == 'hold'
+        env:
+          PR: ${{ steps.pr.outputs.number }}
+          HOLD_LABEL: ${{ inputs.hold-label }}
+        run: |
+          if gh api "repos/$REPO/issues/$PR/labels" --jq '.[].name' | grep -Fxq -- "$HOLD_LABEL"; then
+            echo "#$PR already has the label; nothing to add."
+            exit 0
+          fi
+          gh api -X POST "repos/$REPO/labels" -f name="$HOLD_LABEL" -f color=FBCA04 \
+            -f description="Green, but only the Engineer merges it" >/dev/null 2>&1 || true
+          gh api -X POST "repos/$REPO/issues/$PR/labels" -f "labels[]=$HOLD_LABEL" >/dev/null
+          gh api -X POST "repos/$REPO/issues/$PR/comments" \
+            -f body="The checks are green, but this pull request changes a path that only the Engineer merges. It waits for the Engineer and will not merge itself." >/dev/null
+          echo "Labelled #$PR and said so."
+
+      - name: Merge
+        if: steps.decide.outputs.action == 'merge'
+        env:
+          PR: ${{ steps.pr.outputs.number }}
+          BRANCH: ${{ steps.pr.outputs.branch }}
+        run: |
+          # --match-head-commit: refuse if the pull request moved on after this CI run.
+          gh pr merge "$PR" --repo "$REPO" --squash --match-head-commit "$HEAD_SHA"
+          gh api -X DELETE "repos/$REPO/git/refs/heads/$BRANCH" >/dev/null 2>&1 || true
+
+      - name: Start the backend workflow
+        if: >-
+          steps.decide.outputs.action == 'merge' &&
+          inputs.backend-workflow != '' && inputs.backend-paths != ''
+        env:
+          BACKEND_WORKFLOW: ${{ inputs.backend-workflow }}
+          BACKEND_PATHS: ${{ inputs.backend-paths }}
+        run: |
+          if grep -Eq -- "$BACKEND_PATHS" "$RUNNER_TEMP/files.txt"; then
+            gh workflow run "$BACKEND_WORKFLOW" --repo "$REPO" --ref "$DEFAULT_BRANCH"
+            echo "Started $BACKEND_WORKFLOW on $DEFAULT_BRANCH."
+          else
+            echo "No backend change; nothing to start."
+          fi

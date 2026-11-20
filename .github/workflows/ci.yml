@@ -1,0 +1,75 @@
+# Reusable CI for projects that install the harness (G-0004, G-0012).
+#
+# Call it from the project's own CI workflow, which must be named "CI" for the auto-merge
+# workflow to find it, and pin it to the same tag as the installed harness:
+#
+#   jobs:
+#     checks:
+#       uses: SanderGeraedts/harness/.github/workflows/ci.yml@vX.Y.Z
+#
+# It installs with pnpm, runs `harness check`, then the project's own checks.
+name: CI (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      node-version-file:
+        description: The file that names the Node version.
+        type: string
+        default: .nvmrc
+      harness:
+        description: How to run the harness. Only the harness itself changes this.
+        type: string
+        default: pnpm exec harness
+      checks:
+        description: The project's checks, as a shell script. A failing line fails the job.
+        type: string
+        default: |
+          pnpm run --if-present typecheck
+          pnpm run --if-present test
+          pnpm run --if-present build
+      e2e:
+        description: The end-to-end test command. When set, Playwright's Chromium is installed first.
+        type: string
+        default: ""
+      artifacts:
+        description: Paths to upload as the "ci-artifacts" artifact, whether the job passed or not.
+        type: string
+        default: ""
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      # pnpm at the version in package.json's packageManager field (G-0016).
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: ${{ inputs.node-version-file }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Harness check
+        run: ${{ inputs.harness }} check
+
+      - name: Project checks
+        run: ${{ inputs.checks }}
+
+      - name: Install the browser
+        if: inputs.e2e != ''
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: End-to-end tests
+        if: inputs.e2e != ''
+        run: ${{ inputs.e2e }}
+
+      - name: Upload artifacts
+        if: always() && inputs.artifacts != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-artifacts
+          path: ${{ inputs.artifacts }}
+          if-no-files-found: ignore
+          retention-days: 7
