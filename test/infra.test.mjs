@@ -438,6 +438,20 @@ describe('infra: a run and its result', () => {
     assert.deepEqual(result, { code: 0, stdout: '"pong"', stderr: '' });
   });
 
+  it('lets a few failed looks at the run pass, as a network hiccup', async () => {
+    const { gh: inner } = fakeRun();
+    let fails = 0;
+    const gh = (args) => {
+      if (args[0] === 'run' && fails < 3) {
+        fails++;
+        throw new Error('gh run list failed: EOF');
+      }
+      return inner(args);
+    };
+    const { result } = await runWorkflow({ repo: 'o/r', workflow: 'nas.yml', gh, wait: async () => {} });
+    assert.deepEqual(result, { code: 0, stdout: '"pong"', stderr: '' });
+  });
+
   it('cancels a run that waits for an offline runner, so it never runs later', async () => {
     const { gh, calls } = fakeRun({ states: ['queued'], runner: 'offline' });
     await assert.rejects(runWorkflow({ repo: 'o/r', workflow: 'nas.yml', gh, wait: async () => {}, queuedTries: 3 }), /runner harness-nas on the NAS is offline, so the run was cancelled: the-url/);
