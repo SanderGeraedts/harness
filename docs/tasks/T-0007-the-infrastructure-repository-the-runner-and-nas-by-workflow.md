@@ -322,3 +322,22 @@ One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
   every other check passed (see *Test*). Remaining: the fix and a test that parses every
   generated workflow; then a new test pass, Done-when 4 off the home network, the tag
   `v0.6.0`, and `infra init` re-pinning to it.
+- 2026-11-20 developer: fixed what the tester sent back. Every generated description and
+  name is quoted (`run-name` too), and so is every `name` and `description` of the four
+  reusable `infra-*.yml`. A new test loads every generated caller (three refs and
+  environments) and every file in `.github/workflows/`, `template/_github/workflows/` and
+  `template-sync/_github/workflows/` with the `yaml` parser (a dev dependency; the package
+  keeps `ws` as its one runtime dependency), fails on any error or warning, and reads each
+  caller's descriptions and inputs back; it fails on the old generator. `harness sync` now
+  also writes the ask rules `Bash(*confirmed=true*)` and `PowerShell(*confirmed=true*)`, and
+  `rules/AGENTS.md` says never to start an infrastructure workflow with `gh workflow run`
+  directly. `infra check` and `infra runner status` refuse with "only the Engineer may look
+  at the infrastructure". `pnpm test`: 190 pass, 0 fail. `pnpm run self-test`: "✓ self-test
+  passed: 28 steps, harness 0.6.0 in a throwaway project"; with `--e2e`: 30 steps. `pnpm
+  run check`: tasks, global decisions and agents ✓. Live: `harness infra init` regenerated
+  the infrastructure repository through its pull request #5; its new main has no failed
+  run (only `nas` and `check`, both success); `harness nas --remote core.ping` printed
+  `"pong"`; `harness infra check` exited 0; the runner `online`.
+- 2026-11-20 developer: Remaining: a new test pass; after `v0.6.0` is tagged, `harness infra
+  init` once more to pin the infrastructure repository to the tag; Done-when 4 from a
+  machine off the home network; the tag itself (Done-when 6).
