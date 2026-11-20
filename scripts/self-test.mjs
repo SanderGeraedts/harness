@@ -305,7 +305,7 @@ try {
 
   if (process.argv.includes('--e2e')) {
     step('the created project passes its end-to-end tests');
-    ok(`pnpm exec playwright install ${process.env.CI ? '--with-deps ' : ''}chromium`, inCreated);
+    ok('pnpm exec playwright install chromium', inCreated);
     const e2e = ok('pnpm run test:e2e', { ...inCreated, env: { E2E_PORT: '4317' } });
     assert.match(e2e, /\d+ passed/);
     assert.doesNotMatch(e2e, /\d+ (failed|flaky)/);
