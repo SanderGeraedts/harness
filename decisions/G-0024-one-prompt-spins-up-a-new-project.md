@@ -2,13 +2,13 @@
 id: G-0024
 title: "One prompt spins up a new project: repository, app, hosting and backend, by the Engineer only"
 description: "To be built later: one prompt creates the repository, the app, the Netlify site with its subdomain, and a PocketBase app on the NAS with its own Funnel address, using a Netlify token and a Tailscale OAuth client in the Engineer's environment; only the Engineer can do it."
-status: Accepted            # Accepted | Replaced
+status: Replaced            # Accepted | Replaced
 date: 2026-11-20
 decided_by: engineer
 since: 0.1.0                # the harness version that added this record
-changed: ""                 # the version in which it was replaced or redacted
+changed: 0.4.0              # the version in which it was replaced or redacted
 replaces: []
-replaced_by: []
+replaced_by: [G-0028]
 tags: [operations]
 ---
 

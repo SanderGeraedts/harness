@@ -2,13 +2,13 @@
 id: G-0025
 title: "Agents create and maintain the ruleset on a repository's default branch"
 description: "Agents set up and keep the branch ruleset with harness protect: changes need a pull request with 0 approvals, the CI check is required, no deletion, no force-push and no bypass actors; it can be reversed, so it needs no human."
-status: Accepted            # Accepted | Replaced
+status: Replaced            # Accepted | Replaced
 date: 2026-11-20
 decided_by: engineer
 since: 0.1.0                # the harness version that added this record
-changed: ""                 # the version in which it was replaced or redacted
+changed: 0.4.0              # the version in which it was replaced or redacted
 replaces: []
-replaced_by: []
+replaced_by: [G-0029]
 tags: [process]
 ---
 

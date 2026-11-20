@@ -2,13 +2,13 @@
 id: G-0022
 title: "Agents manage the NAS only through the harness's TrueNAS tool, and destructive calls need a human's yes"
 description: "Agents manage the NAS only with harness nas, using a key that exists only in the Engineer's environment and a pinned certificate; destructive calls need --confirmed and a human's yes, and creating a snapshot is not destructive."
-status: Accepted            # Accepted | Replaced
+status: Replaced            # Accepted | Replaced
 date: 2026-11-20
 decided_by: engineer
 since: 0.1.0                # the harness version that added this record
-changed: ""                 # the version in which it was replaced or redacted
+changed: 0.4.0              # the version in which it was replaced or redacted
 replaces: []
-replaced_by: []
+replaced_by: [G-0027]
 tags: [operations]
 ---
 
