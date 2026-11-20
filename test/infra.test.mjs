@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
+import { parseDocument } from 'yaml';
 import { job, main, remoteNas } from '../lib/infra.mjs';
 import { requireAdmin, requireListedEngineer } from '../lib/infra/access.mjs';
 import { CALLERS, LATER_SECRETS, SECRETS, infraFiles } from '../lib/infra/callers.mjs';
@@ -15,6 +16,47 @@ import { cleanUp, tempDir, write } from './helpers.mjs';
 after(cleanUp);
 
 const workflow = (name) => readFileSync(join(HARNESS_ROOT, '.github', 'workflows', name), 'utf8').replace(/\r\n/g, '\n');
+
+// A real YAML parser: any error or warning fails, so a file GitHub can't read fails here.
+function parseYaml(text, label) {
+  const doc = parseDocument(text, { prettyErrors: true, uniqueKeys: true });
+  const problems = [...doc.errors, ...doc.warnings].map((e) => e.message);
+  assert.deepEqual(problems, [], `${label} isn't valid YAML:\n${problems.join('\n')}`);
+  const value = doc.toJS();
+  assert.equal(typeof value, 'object', `${label} is not a mapping`);
+  return value;
+}
+
+// Every workflow file the harness has or hands out, generated ones aside.
+const workflowFiles = () =>
+  ['.github/workflows', 'template/_github/workflows', 'template-sync/_github/workflows']
+    .filter((dir) => existsSync(join(HARNESS_ROOT, dir)))
+    .flatMap((dir) => readdirSync(join(HARNESS_ROOT, dir)).filter((f) => /\.ya?ml$/.test(f)).map((f) => `${dir}/${f}`));
+
+describe('every workflow is valid YAML', () => {
+  it('finds the workflow files', () => {
+    const files = workflowFiles();
+    for (const f of ['.github/workflows/infra-nas.yml', '.github/workflows/ci.yml', 'template/_github/workflows/ci.yml', 'template-sync/_github/workflows/backend.yml'])
+      assert.ok(files.includes(f), `${f} is among them`);
+  });
+
+  for (const rel of workflowFiles())
+    it(rel, () => {
+      const doc = parseYaml(readFileSync(join(HARNESS_ROOT, rel), 'utf8'), rel);
+      assert.ok(doc.on, `${rel} has triggers`);
+      assert.ok(doc.jobs && Object.keys(doc.jobs).length, `${rel} has jobs`);
+    });
+
+  it('the four generated callers, with any environment and ref', () => {
+    for (const [ref, environment] of [['v0.6.0', 'Prod'], ['0123456789abcdef0123456789abcdef01234567', 'my-env.2'], ['feature/x', 'Other']])
+      for (const [path, text] of Object.entries(infraFiles({ ref, environment })))
+        if (path.endsWith('.yml')) parseYaml(text, `${path} (${ref}, ${environment})`);
+  });
+
+  it('the parser catches what GitHub refuses, such as ": " in a plain value', () => {
+    assert.throws(() => parseYaml('on:\n  x:\n    description: The project syncs: it gets a backend\n', 'example'), /isn't valid YAML/);
+  });
+});
 
 // The workflow_call inputs a reusable workflow declares, with whether each is required.
 function declaredInputs(yaml) {
@@ -75,7 +117,7 @@ describe('infra: the generated files', () => {
       assert.match(text, /^ {4}secrets: inherit$/m);
       assert.match(text, /^ {6}environment: Prod$/m);
       assert.match(text, /^ {6}harness-ref: v9\.8\.7$/m);
-      assert.match(text, /^run-name: [\w-]+ \$\{\{ inputs\.request-id \}\}$/m);
+      assert.match(text, /^run-name: "[\w-]+ \$\{\{ inputs\.request-id \}\}"$/m);
       assert.match(text, /^on:\n {2}workflow_dispatch:\n/m);
     }
   });
@@ -93,6 +135,27 @@ describe('infra: the generated files', () => {
   it('hold nothing that identifies the infrastructure', () => {
     const all = Object.values(infraFiles({ ref: 'v1.0.0', environment: 'Prod' })).join('\n');
     for (const re of IDENTIFYING) assert.doesNotMatch(all, re);
+  });
+
+  it('are valid YAML that a parser reads back as meant: every description whole, every input passed on', () => {
+    for (const environment of ['Prod', 'Other']) {
+      for (const c of CALLERS) {
+        const text = infraFiles({ ref: 'v9.8.7', environment })[`.github/workflows/${c.file}`];
+        const doc = parseYaml(text, `${c.file} (${environment})`);
+        assert.equal(doc.name, c.name);
+        assert.equal(doc['run-name'], `${c.name} \${{ inputs.request-id }}`);
+        const inputs = doc.on.workflow_dispatch.inputs;
+        for (const [name, o] of c.inputs) {
+          assert.equal(inputs[name].description, o.description, `${c.file}: ${name}'s description`);
+          assert.equal(inputs[name].type, o.type ?? 'string');
+        }
+        const job = doc.jobs[c.job];
+        assert.equal(job.uses, `SanderGeraedts/harness/.github/workflows/${c.reusable}@v9.8.7`);
+        assert.equal(job.secrets, 'inherit');
+        assert.equal(job.with.environment, environment);
+        assert.deepEqual(Object.keys(job.with).sort(), ['environment', 'harness-ref', ...Object.keys(inputs)].sort());
+      }
+    }
   });
 
   it('carry the environment given', () => {
@@ -346,6 +409,7 @@ describe('infra: who may', () => {
     assert.equal(requireListedEngineer({ cwd, getLogin: () => 'The-Engineer' }), 'The-Engineer');
     // Outside a project, the admin check decides.
     assert.equal(requireListedEngineer({ cwd: tempDir(), getLogin: () => 'anyone' }), 'anyone');
+    assert.throws(() => requireListedEngineer({ cwd, getLogin: () => 'someone', reads: true }), /^Error: only the Engineer may look at the infrastructure \(G-0026\): someone is not in/);
   });
 
   it('needs admin rights on a private repository', () => {
@@ -402,11 +466,14 @@ describe('infra: the command', () => {
   it('refuses an account that is not the Engineer, before reading any setting', async () => {
     const cwd = tempDir();
     write(cwd, '.harness/engineers', 'the-engineer\n');
-    for (const args of [['init'], ['check'], ['runner', 'install'], ['runner', 'status']]) {
+    // A command that only reads is refused a look, not a change.
+    for (const [args, verb] of [[['init'], 'change'], [['runner', 'install'], 'change'], [['check'], 'look at'], [['runner', 'status'], 'look at']]) {
       const r = await capture(() => main(args, cwd, { env: noRepo(), gh: refusingGh, getLogin: () => 'someone-else' }));
       assert.equal(r.code, 1);
-      assert.match(r.err, /only the Engineer may change the infrastructure \(G-0026\): someone-else is not in/);
+      assert.equal(r.err, `✗ only the Engineer may ${verb} the infrastructure (G-0026): someone-else is not in this project's .harness/engineers`, args.join(' '));
     }
+    const r = await capture(() => remoteNas({ method: 'core.ping', params: [] }, { env: noRepo(), cwd, gh: refusingGh, getLogin: () => 'someone-else' }));
+    assert.match(r.err, /only the Engineer may change the infrastructure \(G-0026\)/);
   });
 
   it('nas --remote starts nas.yml with the call, and prints what the run recorded', async () => {

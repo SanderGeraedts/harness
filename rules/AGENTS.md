@@ -136,6 +136,9 @@ architect turns a lesson that repeats into a proposed rule change for the harnes
   `harness nas --remote`, which runs it in a workflow on the runner on the NAS, and only in a
   session with the Engineer. Ask the Engineer in chat before any `--confirmed` call. Taking a
   snapshot needs no yes; take one before a risky change.
+- **Never start an infrastructure workflow with `gh workflow run` directly.** Always go
+  through `harness nas --remote` or `harness infra`, which check the call first. Claude Code
+  asks a human before any command that carries `confirmed=true`.
 - **Spin-up is the Engineer's** (G-0028): `harness create` and `harness infra` refuse anyone
   else, and removing a project's infrastructure is a separate command that asks first.
 

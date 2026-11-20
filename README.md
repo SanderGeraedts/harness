@@ -401,7 +401,9 @@ project's architect opens a task to conform or records an overruling decision.
 From 0.5.0 to 0.6.0, also in that pull request:
 
 - `sync` rewrites the agents in `.claude/agents/` (each gains the rule that no agent reads,
-  prints or carries a secret). Commit what it writes.
+  prints or carries a secret), and adds two ask rules to `.claude/settings.json`:
+  `Bash(*confirmed=true*)` and `PowerShell(*confirmed=true*)`, so a workflow started by hand
+  with `confirmed=true` asks a human just as `--confirmed` does. Commit what it writes.
 - `rules/AGENTS.md` follows G-0026 to G-0029: secrets in a GitHub environment of the
   private infrastructure repository, the NAS through `harness nas --remote`, spin-up in two
   places, and new repositories private, with a ruleset once public.
@@ -444,7 +446,7 @@ Run from the project root with `pnpm exec harness <command>`.
 | `overrules` | lists the project decisions that overrule global ones |
 | `changes <fromTag> [toTag]` | lists the global decisions added, changed or replaced after `fromTag`, up to `toTag` (default: the installed version) |
 | `waiting [dir...]` | lists what waits on a human, for one or several project folders: open questions, tasks' `Remaining:` lines, and open GitHub issues that are assigned. Skips issues when `gh` is missing |
-| `sync` | writes or refreshes the generated files: `.claude/agents/*.md`, `.githooks/pre-push`, the push and `--confirmed` rules in `.claude/settings.json` (merged into the project's own), the registry README (keeping its project section) and the templates |
+| `sync` | writes or refreshes the generated files: `.claude/agents/*.md`, `.githooks/pre-push`, the push rules and the `--confirmed` and `confirmed=true` ask rules in `.claude/settings.json` (merged into the project's own), the registry README (keeping its project section) and the templates |
 | `init [login...] [--default-branch <name>]` | sets an existing repository up, then runs `sync` |
 | `adopt [--write] [login...] [--default-branch <name>]` | for a repository that already has registries: reports what is there, what would be added, which generated files differ, and which project decisions look like a global one; changes nothing. With `--write` it adds what is missing and overwrites nothing |
 | `hooks` | points git at `.githooks`; the project's `prepare` script |

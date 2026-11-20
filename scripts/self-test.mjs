@@ -243,8 +243,13 @@ try {
   mkdirSync(join(elsewhere, '.harness'), { recursive: true });
   writeFileSync(join(elsewhere, '.harness', 'engineers'), 'engineer-of-another-project\n');
   const infraBin = `"${process.execPath}" "${join(installed, 'bin', 'harness.mjs')}"`;
-  for (const command of ['infra init', 'infra init --repo someone/infra', 'infra check', 'infra runner install', 'infra runner status', 'nas --remote core.ping'])
-    fails(`${infraBin} ${command}`, /only the Engineer may change the infrastructure \(G-0026\)/, { cwd: elsewhere, env: { ...noInfra, HARNESS_INFRA_REPO: 'someone/infra' } });
+  // What only reads (check, status) is refused a look; the rest a change.
+  for (const [command, verb] of [['infra init', 'change'], ['infra init --repo someone/infra', 'change'], ['infra runner install', 'change'], ['nas --remote core.ping', 'change'], ['infra check', 'look at'], ['infra runner status', 'look at']])
+    fails(`${infraBin} ${command}`, new RegExp(`only the Engineer may ${verb} the infrastructure \\(G-0026\\)`), { cwd: elsewhere, env: { ...noInfra, HARNESS_INFRA_REPO: 'someone/infra' } });
+
+  step('Claude Code asks a human before a workflow is started with confirmed=true directly');
+  const ask = JSON.parse(get('.claude/settings.json')).permissions.ask;
+  for (const rule of ['Bash(*--confirmed*)', 'PowerShell(*--confirmed*)', 'Bash(*confirmed=true*)', 'PowerShell(*confirmed=true*)']) assert.ok(ask.includes(rule), `the ask rules hold ${rule}`);
 
   step('harness infra and nas --remote stop with a plain message when no infrastructure repository is set');
   // As the Engineer of this project, told who is signed in: CI has no gh account.
