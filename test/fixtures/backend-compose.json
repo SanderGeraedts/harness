@@ -1,0 +1,88 @@
+{
+  "services": {
+    "tailscale": {
+      "image": "ghcr.io/tailscale/tailscale:v1.104.7",
+      "hostname": "my-project",
+      "restart": "unless-stopped",
+      "environment": {
+        "TS_HOSTNAME": "my-project",
+        "TS_STATE_DIR": "/var/lib/tailscale",
+        "TS_SERVE_CONFIG": "/config/serve.json",
+        "TS_USERSPACE": "true",
+        "TS_AUTH_ONCE": "true"
+      },
+      "volumes": [
+        "/data/apps/my-project/tailscale:/var/lib/tailscale"
+      ],
+      "configs": [
+        {
+          "source": "serve",
+          "target": "/config/serve.json"
+        }
+      ],
+      "labels": {
+        "harness.project": "my-project"
+      }
+    },
+    "pocketbase": {
+      "image": "ghcr.io/engineer-one/my-project-backend:stable",
+      "restart": "unless-stopped",
+      "network_mode": "service:tailscale",
+      "depends_on": [
+        "tailscale"
+      ],
+      "command": [
+        "serve",
+        "--http=127.0.0.1:8090",
+        "--dir=/pb_data",
+        "--migrationsDir=/pb_migrations",
+        "--hooksDir=/pb_hooks",
+        "--automigrate=false",
+        "--origins=https://my-project.netlify.app"
+      ],
+      "volumes": [
+        "/data/apps/my-project/pb_data:/pb_data"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "wget",
+          "-q",
+          "--spider",
+          "http://127.0.0.1:8090/api/health"
+        ],
+        "interval": "30s",
+        "timeout": "5s",
+        "retries": 3,
+        "start_period": "15s"
+      },
+      "labels": {
+        "harness.project": "my-project",
+        "com.centurylinklabs.watchtower.enable": "true",
+        "com.centurylinklabs.watchtower.scope": "my-project"
+      }
+    },
+    "watchtower": {
+      "image": "nickfedor/watchtower:1.24.0",
+      "restart": "unless-stopped",
+      "environment": {
+        "WATCHTOWER_LABEL_ENABLE": "true",
+        "WATCHTOWER_SCOPE": "my-project",
+        "WATCHTOWER_POLL_INTERVAL": "300",
+        "WATCHTOWER_CLEANUP": "true"
+      },
+      "volumes": [
+        "/var/run/docker.sock:/var/run/docker.sock"
+      ],
+      "labels": {
+        "harness.project": "my-project",
+        "com.centurylinklabs.watchtower.scope": "my-project"
+      }
+    }
+  },
+  "configs": {
+    "serve": {
+      "content": "{\n  \"TCP\": {\n    \"443\": {\n      \"HTTPS\": true\n    },\n    \"8443\": {\n      \"HTTPS\": true\n    }\n  },\n  \"Web\": {\n    \"$${TS_CERT_DOMAIN}:443\": {\n      \"Handlers\": {\n        \"/api/health\": {\n          \"Proxy\": \"http://127.0.0.1:8090/api/health\"\n        },\n        \"/api/collections/users/\": {\n          \"Proxy\": \"http://127.0.0.1:8090/api/collections/users/\"\n        },\n        \"/api/collections/items/\": {\n          \"Proxy\": \"http://127.0.0.1:8090/api/collections/items/\"\n        }\n      }\n    },\n    \"$${TS_CERT_DOMAIN}:8443\": {\n      \"Handlers\": {\n        \"/\": {\n          \"Proxy\": \"http://127.0.0.1:8090\"\n        }\n      }\n    }\n  },\n  \"AllowFunnel\": {\n    \"$${TS_CERT_DOMAIN}:443\": true\n  }\n}"
+    }
+  }
+}

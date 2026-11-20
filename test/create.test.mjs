@@ -32,7 +32,8 @@ import { cleanUp, tempDir, write } from './helpers.mjs';
 
 after(cleanUp);
 
-const options = (extra = {}) => resolveOptions({ name: 'my-project', purpose: 'Keep a list.', engineers: [], visibility: 'private', github: true, ...extra }, { cwd: tempDir(), version: '1.2.3' });
+// Spin-up is left out unless a test asks for it: it has tests of its own below.
+const options = (extra = {}) => resolveOptions({ name: 'my-project', purpose: 'Keep a list.', engineers: [], visibility: 'private', github: true, infra: false, ...extra }, { cwd: tempDir(), version: '1.2.3' });
 const walk = (dir, rel = '') =>
   readdirSync(join(dir, rel), { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(dir, `${rel}${e.name}/`) : [`${rel}${e.name}`]));
 
@@ -85,6 +86,13 @@ describe('create: options', () => {
     assert.equal(options({ accent: '#AA3366' }).accent, '#aa3366');
     assert.equal(options({ purpose: '  Keep\n a   list. ' }).purpose, 'Keep a list.');
     assert.equal(titleFromName('a-b-c'), 'A b c');
+  });
+
+  it('spins up unless --no-infra or --no-github says otherwise', () => {
+    assert.equal(parseArgs(['a', '--no-infra']).infra, false);
+    assert.equal(resolveOptions({ name: 'a', purpose: 'x', engineers: [], github: true }, { cwd: tempDir() }).infra, true);
+    assert.equal(resolveOptions({ name: 'a', purpose: 'x', engineers: [], github: true, infra: false }, { cwd: tempDir() }).infra, false);
+    assert.equal(resolveOptions({ name: 'a', purpose: 'x', engineers: [], github: false }, { cwd: tempDir() }).infra, false);
   });
 
   it('refuses what it cannot use', () => {
@@ -511,6 +519,86 @@ describe('create: the steps', () => {
     const plain = fake(o);
     await create({ ...o, gitName: undefined, gitEmail: undefined, dir: join(tempDir(), 'p') }, plain.deps);
     assert.ok(!plain.calls.some((c) => c.startsWith('git config user.')));
+  });
+
+  // Spin-up's two halves, as create calls them; `up` says what a run of infra up would.
+  const fakeInfra = (outcome = { code: 0, site: 'https://my-project.netlify.app', remaining: [], failed: false }) => {
+    const seen = [];
+    return {
+      seen,
+      infra: {
+        preflight: ({ sync, isPrivate }) => seen.push(`preflight sync=${sync} private=${isPrivate}`),
+        up: async ({ name, repository, log }) => {
+          seen.push(`up ${name} ${repository}`);
+          log(`✓ the site: created, ${outcome.site}`);
+          for (const r of outcome.remaining) log(r);
+          return outcome;
+        },
+      },
+    };
+  };
+
+  it('with spin-up: checks the infrastructure first, and writes nothing when it is not ready', async () => {
+    const o = { ...options({ engineers: ['engineer-one'], infra: true }), dir: join(tempDir(), 'p') };
+    const { calls, deps } = fake(o);
+    const infra = {
+      preflight: () => {
+        throw new Error('the runner harness-nas on the NAS is offline: see harness infra runner status');
+      },
+      up: async () => assert.fail('spin-up must not start'),
+    };
+    await assert.rejects(create(o, { ...deps, infra }), /is offline: see harness infra runner status\nNothing was created\. Fix that first, or create the project with --no-infra and run harness infra up my-project later\./);
+    assert.ok(!existsSync(o.dir));
+    assert.ok(!calls.some((c) => c.startsWith('gh repo create') || c.startsWith('git init') || c.startsWith('pnpm')));
+  });
+
+  it('with spin-up: after the ruleset, waits for the backend image, spins up, and ends with Done. and the site', async () => {
+    const o = { ...options({ engineers: ['engineer-one'], infra: true }), dir: join(tempDir(), 'p') };
+    const { calls, deps } = fake(o);
+    const { seen, infra } = fakeInfra();
+    const said = [];
+    const result = await create(o, { ...deps, infra, log: (m) => said.push(m) });
+    assert.deepEqual(seen, ['preflight sync=true private=true', 'up my-project engineer-one/my-project']);
+    const protect = calls.findIndex((c) => c.includes(' protect '));
+    const backend = calls.findIndex((c) => c.includes('--workflow backend.yml'));
+    assert.ok(protect > 0 && backend > protect, 'the backend run is waited for after the ruleset');
+    assert.match(said.join('\n'), /✓ the backend image is published: u/);
+    assert.equal(said.at(-1), `\nDone. https://github.com/engineer-one/my-project\nThe site: https://my-project.netlify.app\nNext: open ${o.dir} and start with docs/tasks/index.md.`);
+    assert.equal(result.site, 'https://my-project.netlify.app');
+    assert.equal(result.spun, true);
+  });
+
+  it('with spin-up, without sync: no backend to wait for', async () => {
+    const o = { ...options({ engineers: ['engineer-one'], infra: true, sync: false }), dir: join(tempDir(), 'p') };
+    const { calls, deps } = fake(o);
+    const { seen, infra } = fakeInfra();
+    await create(o, { ...deps, infra });
+    assert.equal(seen[0], 'preflight sync=false private=true');
+    assert.ok(!calls.some((c) => c.includes('backend.yml')));
+  });
+
+  it('with spin-up unfinished: the project stands, and the ending says how to go on', async () => {
+    const o = { ...options({ engineers: ['engineer-one'], infra: true }), dir: join(tempDir(), 'p') };
+    const { deps } = fake(o);
+    const line = 'Remaining: nodes tagged tag:harness may not use Funnel: add to the tailnet policy file …';
+    const { infra } = fakeInfra({ code: 0, site: 'https://my-project.netlify.app', remaining: [line], failed: false });
+    const said = [];
+    const result = await create(o, { ...deps, infra, log: (m) => said.push(m) });
+    assert.ok(said.includes(line));
+    assert.match(said.at(-1), /^\nCreated, but spin-up isn't finished: once what is said above is done, run harness infra up my-project\. https:\/\/github\.com\/engineer-one\/my-project\n/);
+    assert.equal(result.spun, false);
+  });
+
+  it('with spin-up: a failed first backend run is said, and spin-up is not started', async () => {
+    const o = { ...options({ engineers: ['engineer-one'], infra: true }), dir: join(tempDir(), 'p') };
+    const { deps } = fake(o);
+    const exec = (command, args, opts) => (args.includes('backend.yml') ? JSON.stringify([{ status: 'completed', conclusion: 'failure', url: 'the-backend-run' }]) : deps.exec(command, args, opts));
+    const { seen, infra } = fakeInfra();
+    const said = [];
+    await create(o, { ...deps, exec, infra, log: (m) => said.push(m) });
+    assert.deepEqual(seen, ['preflight sync=true private=true']);
+    assert.match(said.join('\n'), /✗ spin-up: the first backend run ended as failure: the-backend-run/);
+    assert.match(said.at(-1), /spin-up isn't finished/);
   });
 
   it('waitForCi gives up when no run appears', async () => {

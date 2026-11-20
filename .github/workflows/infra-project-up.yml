@@ -1,33 +1,62 @@
-# Reusable: spin-up of a project's hosting and backend (G-0028). Built in T-0004 (0.7.0);
-# until then it only says so, so that the `project-up.yml` that `harness infra init`
-# generates is a valid caller from the start. It runs on GitHub's runner and touches nothing.
+# Reusable: spin-up of a project's hosting and backend (G-0028). Called by the
+# `project-up.yml` that `harness infra init` generates in the Engineer's private
+# infrastructure repository; started by `harness infra up` (and `harness create`).
+#
+#   site     GitHub's runner   finds or creates the Netlify site, marked as the project's,
+#                              and links it to the repository through Netlify's GitHub App
+#   address  GitHub's runner   when the project syncs: joins the tailnet for a moment as a
+#                              node tagged tag:harness, checks that MagicDNS, HTTPS and
+#                              Funnel are on for it, and works out the backend's address
+#   backend  the NAS's runner  when the project syncs: the dataset, the snapshot task
+#                              (G-0023), the pull token (G-0030) and the app, through the NAS
+#                              client, with a one-use auth key for the app's first start
+#   checks   GitHub's runner   from outside the tailnet: what the internet reaches of the
+#                              backend; then BACKEND_URL for production only (G-0019), a
+#                              production build, and the site that holds it
+#
+# Every step first looks for what is there, so a second run makes nothing twice. The inputs
+# reach the harness as environment variables, never as text in a script. Each job records
+# its result in the log for the command that started the run; no job prints a secret, and
+# only the site's address is named in a result.
 name: "Infrastructure project up (reusable)"
 
 on:
   workflow_call:
     inputs:
       environment:
+        description: "The GitHub environment that holds the secrets."
         type: string
         default: Prod
       harness-ref:
+        description: "The harness tag the caller is pinned to; the jobs run the harness at it."
         type: string
         required: true
       project:
+        description: "The project's name."
         type: string
         required: true
       repository:
+        description: "Its repository, as owner/name."
         type: string
         required: true
       sync:
+        description: "The project syncs, so it gets a backend."
         type: boolean
         default: false
+      private:
+        description: "Its repository is private, so the NAS pulls its image with GHCR_PULL_TOKEN."
+        type: boolean
+        default: true
       funnel-paths:
+        description: "The paths the internet may reach, as a JSON list."
         type: string
         default: "[]"
       installation-id:
+        description: "The installation of Netlify's GitHub App; empty to find it."
         type: string
         default: ""
       request-id:
+        description: "Names the run, so the command that started it finds it again."
         type: string
         default: ""
 
@@ -35,10 +64,153 @@ permissions:
   contents: read
 
 jobs:
-  up:
+  site:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 15
+    outputs:
+      site-url: ${{ steps.up.outputs.site-url }}
+      linked: ${{ steps.up.outputs.linked }}
     steps:
-      - run: |
-          echo "::error::Spin-up arrives with harness 0.7.0 (T-0004). Nothing was done."
-          exit 1
+      - uses: actions/checkout@v5
+        with:
+          repository: SanderGeraedts/harness
+          ref: ${{ inputs.harness-ref }}
+          path: harness
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: harness/.nvmrc
+      # After Node: pnpm's installer runs on it.
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: harness/package.json
+      - name: "Install the harness's dependencies"
+        working-directory: harness
+        run: pnpm install --frozen-lockfile --prod
+      - name: "harness infra job up-site"
+        id: up
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          PROJECT: ${{ inputs.project }}
+          REPOSITORY: ${{ inputs.repository }}
+          INSTALLATION_ID: ${{ inputs.installation-id }}
+        run: node harness/bin/harness.mjs infra job up-site
+
+  address:
+    if: inputs.sync
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 10
+    outputs:
+      backend-url: ${{ steps.up.outputs.backend-url }}
+      ready: ${{ steps.up.outputs.ready }}
+    steps:
+      # A short-lived node tagged tag:harness; it leaves the tailnet when the job ends.
+      - uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:harness
+      - name: "Read what the tailnet lets a tag:harness node do"
+        run: sudo tailscale status --json > "$RUNNER_TEMP/tailscale-status.json"
+      - uses: actions/checkout@v5
+        with:
+          repository: SanderGeraedts/harness
+          ref: ${{ inputs.harness-ref }}
+          path: harness
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: harness/.nvmrc
+      # After Node: pnpm's installer runs on it.
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: harness/package.json
+      - name: "Install the harness's dependencies"
+        working-directory: harness
+        run: pnpm install --frozen-lockfile --prod
+      - name: "harness infra job up-address"
+        id: up
+        env:
+          PROJECT: ${{ inputs.project }}
+        run: TAILSCALE_STATUS="$RUNNER_TEMP/tailscale-status.json" node harness/bin/harness.mjs infra job up-address
+
+  backend:
+    if: inputs.sync
+    needs: site
+    runs-on: [self-hosted, harness-nas]
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 30
+    # One NAS job at a time.
+    concurrency:
+      group: harness-nas
+      cancel-in-progress: false
+    outputs:
+      ready: ${{ steps.up.outputs.ready }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: SanderGeraedts/harness
+          ref: ${{ inputs.harness-ref }}
+          path: harness
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: harness/.nvmrc
+      # After Node: pnpm's installer runs on it.
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: harness/package.json
+      - name: "Install the harness's dependencies"
+        working-directory: harness
+        run: pnpm install --frozen-lockfile --prod
+      - name: "harness infra job up-backend"
+        id: up
+        env:
+          TRUENAS_API_KEY: ${{ secrets.TRUENAS_API_KEY }}
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+          GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
+          PROJECT: ${{ inputs.project }}
+          REPOSITORY: ${{ inputs.repository }}
+          PRIVATE: ${{ inputs.private }}
+          FUNNEL_PATHS: ${{ inputs.funnel-paths }}
+          SITE_URL: ${{ needs.site.outputs.site-url }}
+        run: node harness/bin/harness.mjs infra job up-backend
+
+  checks:
+    needs: [site, address, backend]
+    # A project without a backend only needs its site built; one with a backend waits for
+    # the backend and its address. A missing human step leaves this job out.
+    if: >-
+      always() && needs.site.result == 'success' && needs.site.outputs.linked == 'true' &&
+      (!inputs.sync || (needs.address.outputs.ready == 'true' && needs.backend.outputs.ready == 'true'))
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: SanderGeraedts/harness
+          ref: ${{ inputs.harness-ref }}
+          path: harness
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: harness/.nvmrc
+      # After Node: pnpm's installer runs on it.
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: harness/package.json
+      - name: "Install the harness's dependencies"
+        working-directory: harness
+        run: pnpm install --frozen-lockfile --prod
+      - name: "harness infra job up-checks"
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          PROJECT: ${{ inputs.project }}
+          REPOSITORY: ${{ inputs.repository }}
+          SYNC: ${{ inputs.sync }}
+          BACKEND_URL: ${{ needs.address.outputs.backend-url }}
+        run: node harness/bin/harness.mjs infra job up-checks

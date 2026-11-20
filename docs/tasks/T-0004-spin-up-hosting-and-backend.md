@@ -361,6 +361,47 @@ of `harness create`, `harness infra up` and `harness infra down`: one `✓` line
 the style `create` has now, the site's address at the end, and `Remaining:` lines for what
 a human still has to do.
 
+The wording as built (developer, slice 3), with made-up names:
+
+```text
+$ harness infra up my-project
+Spinning up engineer/my-project (private, with a backend)
+✓ the infrastructure: the environment Prod has its secrets
+✓ the runner harness-nas: online
+✓ the backend image: published
+Starting project-up.yml; this takes a while…
+✓ the site: created, https://my-project.netlify.app
+✓ the site builds from engineer/my-project, with a deploy preview for every pull request
+✓ the tailnet: MagicDNS, HTTPS certificates and Funnel for tag:harness are on; the backend's address is known
+✓ the project's dataset: created, marked harness:project=my-project
+✓ its datasets pb_data and tailscale: there
+✓ the snapshot task: created, every hour, each kept two weeks; a first snapshot started
+✓ the NAS may pull private images from ghcr.io: set up
+✓ the app: created, with a one-use auth key for tag:harness
+✓ the auth key: removed from the app's configuration
+✓ the app: running
+✓ from the internet, the backend answers /api/health with 200
+✓ the admin screen answers 404 from the internet
+✓ the superuser sign-in answers 404 from the internet
+✓ the admin port doesn't answer from the internet
+✓ CORS answers the site's origin, and no other
+✓ BACKEND_URL on the site, for production only: set
+✓ the production build: done
+✓ the site serves the app
+✓ the site's headers (dist/_headers) let it reach the backend, and only production's do
+✓ the production bundle holds the backend's address
+The site: https://my-project.netlify.app
+Remaining: the backend has no superuser and no user yet. The Engineer makes the superuser in the PocketBase container's shell on the NAS, and the first user in the admin screen, from a device on the tailnet.
+Done.
+```
+
+A second run says "already there" for each step. A missing human step is one `Remaining:`
+line that says exactly what to do, and the run ends `Not finished: see the Remaining lines.`
+`harness infra down my-project` prints what it would delete and exits 2; with
+`--confirmed` it ends with the `Remaining:` line for the machine in the tailnet, the
+repository and its image. `create` ends with `Done.`, the repository's address and `The
+site: …`, or with `Created, but spin-up isn't finished: …, run harness infra up <name>.`
+
 # Test
 
 Not yet tested.
