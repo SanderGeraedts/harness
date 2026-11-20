@@ -299,6 +299,20 @@ describe('create: the steps', () => {
     assert.ok(!calls.some((c) => c.includes(' protect ')));
   });
 
+  it('says what remains when GitHub refuses the ruleset, and still finishes', async () => {
+    const o = { ...options({ engineers: ['engineer-one'] }), dir: join(tempDir(), 'p') };
+    const { deps } = fake(o);
+    const said = [];
+    const exec = (command, args, opts) => {
+      if (args.includes('protect')) throw new Error('node harness.mjs protect failed:\n✗ gh: Upgrade to make this possible (HTTP 403)');
+      return deps.exec(command, args, opts);
+    };
+    const result = await create(o, { ...deps, exec, log: (m) => said.push(m) });
+    assert.equal(result.protected, false);
+    assert.match(said.join('\n'), /! Remaining: the default branch is NOT protected \(G-0025\)[\s\S]*HTTP 403[\s\S]*harness protect "checks \/ checks"/);
+    assert.match(said.at(-1), /Created, but not protected\./);
+  });
+
   it('waitForCi gives up when no run appears', async () => {
     await assert.rejects(waitForCi('a/b', { gh: () => '[]', wait: async () => {}, appearTries: 3 }), /no CI run appeared on a\/b/);
   });

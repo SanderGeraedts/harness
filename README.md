@@ -191,6 +191,10 @@ no repository of that name exists, before it writes anything. If a run stops aft
 the repository, remove the local folder and run it again: an empty repository of that name
 with the same visibility is used instead of refused.
 
+GitHub offers rulesets on public repositories, and on private ones only on a paid plan.
+Where it refuses, the project is still created and its CI runs, and the command ends with a
+`Remaining:` line: the default branch is not protected until `harness protect` succeeds.
+
 The app it creates is local-first and ready to sync: Dexie with `updatedAt`, tombstones and
 an outbox, one write API, slug addresses, seeded demo data outside production, and no
 backend. Hosting, the backend and sync are not created yet.
