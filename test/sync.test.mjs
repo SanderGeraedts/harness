@@ -70,7 +70,7 @@ describe('sync', () => {
     assert.deepEqual(merged.permissions.deny.slice(0, 2), ['Bash(rm -rf:*)', 'Bash(git push origin main)']);
     for (const rule of required.deny) assert.ok(merged.permissions.deny.includes(rule), rule);
     assert.equal(merged.permissions.deny.length, required.deny.length + 1);
-    assert.deepEqual(merged.permissions.ask, ['Bash(deploy:*)', 'Bash(*--confirmed*)', 'PowerShell(*--confirmed*)']);
+    assert.deepEqual(merged.permissions.ask, ['Bash(deploy:*)', 'Bash(*--confirmed*)', 'Bash(*confirmed=true*)', 'PowerShell(*--confirmed*)', 'PowerShell(*confirmed=true*)']);
     assert.deepEqual(sync(dir), []);
   });
 

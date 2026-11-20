@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   # The harness's reusable CI: pnpm install, harness check, then the checks below. GitHub
-  # reports this job as "checks / checks", the name the ruleset on main requires (G-0025).
+  # reports this job as "checks / checks", the name the ruleset on main requires (G-0029).
   checks:
     uses: SanderGeraedts/harness/.github/workflows/ci.yml@__HARNESS_REF__
     with:

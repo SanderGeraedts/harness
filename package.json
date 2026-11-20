@@ -1,6 +1,6 @@
 {
   "name": "@sandergeraedts/harness",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "An AI-first way of working: decisions, tasks, an agent team and workflows that projects install",
   "license": "MIT",
   "type": "module",
@@ -34,5 +34,8 @@
   "dependencies": {
     "ws": "^8.23.0"
   },
-  "packageManager": "pnpm@12.18.0"
+  "packageManager": "pnpm@12.18.0",
+  "devDependencies": {
+    "yaml": "^2.9.1"
+  }
 }

@@ -30,9 +30,12 @@ slices, each its own task and pull request:
 
 | Slice | Task | Delivers | Release |
 | --- | --- | --- | --- |
-| 1 | [T-0007](T-0007-the-infrastructure-repository-the-runner-and-nas-by-workflow.md) | the generator of the private infrastructure repository, the runner on the NAS, `harness nas --remote` | 0.4.0 |
+| 1 | [T-0007](T-0007-the-infrastructure-repository-the-runner-and-nas-by-workflow.md) | the generator of the private infrastructure repository, the runner on the NAS, `harness nas --remote` | 0.6.0 |
 | 2 | [T-0008](T-0008-the-templates-backend-sign-in-and-sync.md) | the template's backend, sign-in and sync, and `create --sync` / `--no-sync` | 0.5.0 |
-| 3 | this task | the spin-up and teardown workflows, `create` starting them, the live proof | 0.6.0 |
+| 3 | this task | the spin-up and teardown workflows, `create` starting them, the live proof | 0.7.0 |
+
+(Slice 2 merged first and took 0.5.0; 0.4.0 was never tagged, so slice 1 is 0.6.0 and this
+slice 0.7.0.)
 
 Slices 1 and 2 don't depend on each other and can be built at the same time. This task's
 own slice starts when both are Done.

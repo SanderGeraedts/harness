@@ -319,7 +319,7 @@ describe('create: only the Engineer', () => {
     const cwd = project(['Engineer-One', 'engineer-two']);
     assert.deepEqual(resolveEngineers({ cwd, getLogin: () => 'engineer-one' }), { login: 'engineer-one', engineers: ['Engineer-One', 'engineer-two'] });
     assert.deepEqual(resolveEngineers({ cwd, given: ['engineer-ONE', 'three'], getLogin: () => 'engineer-two' }).engineers, ['Engineer-One', 'engineer-two', 'three']);
-    assert.throws(() => resolveEngineers({ cwd, getLogin: () => 'someone' }), /only the Engineer creates a project \(G-0024\): someone is not in/);
+    assert.throws(() => resolveEngineers({ cwd, getLogin: () => 'someone' }), /only the Engineer creates a project \(G-0028\): someone is not in/);
     // Naming yourself doesn't help inside a project.
     assert.throws(() => resolveEngineers({ cwd, given: ['someone'], getLogin: () => 'someone' }), /someone is not in/);
   });
@@ -443,17 +443,31 @@ describe('create: the steps', () => {
     assert.ok(!calls.some((c) => c.includes(' protect ')));
   });
 
-  it('says what remains when GitHub refuses the ruleset, and still finishes', async () => {
+  const refusingProtect = (deps) => (command, args, opts) => {
+    if (args.includes('protect')) throw new Error('node harness.mjs protect failed:\n✗ gh: Upgrade to make this possible (HTTP 403)');
+    return deps.exec(command, args, opts);
+  };
+
+  it('says calmly, once, that a private repository gets its ruleset when it is public (G-0029)', async () => {
     const o = { ...options({ engineers: ['engineer-one'] }), dir: join(tempDir(), 'p') };
     const { deps } = fake(o);
     const said = [];
-    const exec = (command, args, opts) => {
-      if (args.includes('protect')) throw new Error('node harness.mjs protect failed:\n✗ gh: Upgrade to make this possible (HTTP 403)');
-      return deps.exec(command, args, opts);
-    };
-    const result = await create(o, { ...deps, exec, log: (m) => said.push(m) });
+    const result = await create(o, { ...deps, exec: refusingProtect(deps), log: (m) => said.push(m) });
     assert.equal(result.protected, false);
-    assert.match(said.join('\n'), /! Remaining: the default branch is NOT protected \(G-0025\)[\s\S]*HTTP 403[\s\S]*harness protect "checks \/ checks"/);
+    const text = said.join('\n');
+    assert.equal(text.match(/Remaining:/g).length, 1);
+    assert.match(text, /^Remaining: the default branch gets its ruleset when the repository is public \(G-0029\);[^\n]*pnpm exec harness protect "checks \/ checks"$/m);
+    assert.doesNotMatch(text, /NOT protected|HTTP 403|^!/m);
+    assert.match(said.at(-1), /^\nDone\. /);
+  });
+
+  it('says what remains when GitHub refuses the ruleset on a public repository, and still finishes', async () => {
+    const o = { ...options({ engineers: ['engineer-one'], visibility: 'public' }), dir: join(tempDir(), 'p') };
+    const { deps } = fake(o);
+    const said = [];
+    const result = await create(o, { ...deps, exec: refusingProtect(deps), log: (m) => said.push(m) });
+    assert.equal(result.protected, false);
+    assert.match(said.join('\n'), /! Remaining: the default branch is NOT protected \(G-0029\)[\s\S]*HTTP 403[\s\S]*harness protect "checks \/ checks"/);
     assert.match(said.at(-1), /Created, but not protected\./);
   });
 

@@ -19,8 +19,11 @@ const USAGE = `harness <command>
   hooks                          point git at .githooks (the project's prepare script)
   protect <check>... [--repo owner/name] [--dry-run]
                                  create or update the ruleset on the default branch
-  nas <method> [params-json] [--job] [--confirmed] | --fingerprint
-                                 call the TrueNAS API
+  nas [--remote] <method> [params-json] [--job] [--confirmed] | --fingerprint
+                                 call the TrueNAS API; --remote through the workflow on the
+                                 runner on the NAS (the Engineer only)
+  infra <command>                the private infrastructure repository and the runner on the
+                                 NAS (the Engineer only); harness infra --help lists them
   create <name> [options]        spin up a new project from the template (the Engineer only);
                                  harness create --help lists the options
 `;
@@ -39,6 +42,7 @@ const COMMANDS = {
   protect: () => import('../lib/protect.mjs').then((m) => m.main),
   nas: () => import('../lib/nas.mjs').then((m) => m.main),
   create: () => import('../lib/create.mjs').then((m) => m.main),
+  infra: () => import('../lib/infra.mjs').then((m) => m.main),
 };
 
 const [command, ...args] = process.argv.slice(2);

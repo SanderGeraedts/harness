@@ -49,3 +49,5 @@ The *Design* section (design, then review), additions to *Done when*, and a *Log
 - Don't change the look or language the project has decided on; ask the architect.
 - Don't pass a build you haven't looked at.
 - Don't mark a pull request ready; that is the tester's.
+- Never read, print or carry a secret (G-0026): check that one exists by its name only, and
+  never write a host name, address or dataset path into the repository.

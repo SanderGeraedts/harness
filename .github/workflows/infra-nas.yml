@@ -1,0 +1,81 @@
+# Reusable: one TrueNAS API call, run by `harness nas` on the self-hosted runner on the NAS
+# (G-0026, G-0027). Called by the `nas.yml` that `harness infra init` generates in the
+# Engineer's private infrastructure repository; started by `harness nas --remote`.
+#
+# The key comes from the caller's GitHub environment (secrets: inherit); the NAS's address,
+# fingerprint and parent dataset come from the runner's own configuration. The inputs reach
+# the command as environment variables, never as text in the script. A destructive method
+# runs only when `confirmed` is true, which the command passes on only when the Engineer
+# gave --confirmed. The result goes to the private repository's log, for the command that
+# started the run.
+name: "Infrastructure NAS call (reusable)"
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "The GitHub environment that holds TRUENAS_API_KEY."
+        type: string
+        default: Prod
+      harness-ref:
+        description: "The harness tag the caller is pinned to; the job runs the harness at it."
+        type: string
+        required: true
+      method:
+        description: "The TrueNAS API method."
+        type: string
+        required: true
+      params:
+        description: "Its parameters, as a JSON array."
+        type: string
+        default: "[]"
+      job:
+        description: "The method starts a job; wait for it."
+        type: boolean
+        default: false
+      confirmed:
+        description: "A destructive method, confirmed by the Engineer."
+        type: boolean
+        default: false
+      request-id:
+        description: "Names the run, so the command that started it finds it again."
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  nas:
+    runs-on: [self-hosted, harness-nas]
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 30
+    # One NAS job at a time.
+    concurrency:
+      group: harness-nas
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: SanderGeraedts/harness
+          ref: ${{ inputs.harness-ref }}
+          path: harness
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: harness/.nvmrc
+      # After Node: pnpm's installer runs on it.
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: harness/package.json
+      - name: "Install the harness's dependencies"
+        working-directory: harness
+        run: pnpm install --frozen-lockfile --prod
+      - name: "harness nas"
+        env:
+          TRUENAS_API_KEY: ${{ secrets.TRUENAS_API_KEY }}
+          NAS_METHOD: ${{ inputs.method }}
+          NAS_PARAMS: ${{ inputs.params }}
+          NAS_JOB: ${{ inputs.job }}
+          NAS_CONFIRMED: ${{ inputs.confirmed }}
+        run: node harness/bin/harness.mjs infra job nas

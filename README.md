@@ -18,7 +18,7 @@ itself. Humans decide what can't be undone or costs money.
 | `bin/`, `lib/` | the `harness` command |
 | [template/](template/) | the app a new project starts from, for `harness create` |
 | [template-sync/](template-sync/) | what a project that syncs gets on top of it: a backend, a sign-in and the sync engine |
-| [.github/workflows/](.github/workflows/) | reusable `ci.yml`, `auto-merge.yml` and `backend.yml` |
+| [.github/workflows/](.github/workflows/) | reusable `ci.yml`, `auto-merge.yml` and `backend.yml` for projects, and `infra-nas.yml` and `infra-check.yml` for the private infrastructure repository |
 
 ## Roles
 
@@ -45,7 +45,7 @@ Every task goes through a pipeline, and each role writes its result in the task 
 The project is an existing git repository with a `package.json`, using pnpm.
 
 ```sh
-pnpm add -D github:SanderGeraedts/harness#v0.5.0
+pnpm add -D github:SanderGeraedts/harness#v0.6.0
 pnpm exec harness init <engineer-github-login>...
 pnpm exec harness check
 ```
@@ -85,7 +85,7 @@ concurrency:
 
 jobs:
   checks:
-    uses: SanderGeraedts/harness/.github/workflows/ci.yml@v0.5.0
+    uses: SanderGeraedts/harness/.github/workflows/ci.yml@v0.6.0
     # with:
     #   checks: |
     #     pnpm run typecheck
@@ -120,7 +120,7 @@ permissions:
 
 jobs:
   merge:
-    uses: SanderGeraedts/harness/.github/workflows/auto-merge.yml@v0.5.0
+    uses: SanderGeraedts/harness/.github/workflows/auto-merge.yml@v0.6.0
     # with:
     #   ci-workflow: ci.yml
     #   backend-workflow: backend.yml
@@ -176,7 +176,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: SanderGeraedts/harness/.github/workflows/backend.yml@v0.5.0
+    uses: SanderGeraedts/harness/.github/workflows/backend.yml@v0.6.0
 ```
 
 Publishing is a job of its own: the only one that takes `packages: write`, and it runs on
@@ -197,7 +197,7 @@ which is why it needs `workflow_dispatch:`. Its inputs, all optional:
 | `publish` | `true` | `false` never publishes the image |
 | `setup`, `project-directory` | none, `.` | only the harness itself uses these, to test the template |
 
-Once CI has run, protect the default branch. Agents do this themselves (G-0025). The check
+Once CI has run, protect the default branch. Agents do this themselves wherever GitHub allows a ruleset (G-0029). The check
 name is the caller's job name, then the reusable workflow's:
 
 ```sh
@@ -211,7 +211,7 @@ when the checks passed.
 ## Adopt, in a repository that already has registries
 
 ```sh
-pnpm add -D github:SanderGeraedts/harness#v0.5.0
+pnpm add -D github:SanderGeraedts/harness#v0.6.0
 pnpm exec harness adopt
 pnpm exec harness adopt --write <engineer-github-login>...
 pnpm exec harness sync
@@ -267,7 +267,7 @@ candidate, either the global decision covers it (set the project decision to `Re
 
 ## Create a new project
 
-`harness create` spins up a new project (G-0024): the app from [template/](template/), the
+`harness create` spins up a new project (G-0028): the app from [template/](template/), the
 harness installed and initialised, CI and auto-merge wired, the first decisions and tasks
 recorded, and a GitHub repository with a protected default branch.
 
@@ -323,7 +323,7 @@ What it does, in order:
    again.
 5. Creates the repository under the signed-in account and pushes. This is the one push to
    the default branch a project ever gets: the first commit of an empty repository, before
-   a ruleset can exist (G-0025). The project's own pre-push hook is not used for it.
+   a ruleset can exist (G-0029). The project's own pre-push hook is not used for it.
 6. Waits for the first CI run and, when it is green, runs `harness protect "checks / checks"`.
 
 The push carries workflow files, so `gh`'s token needs the `workflow` scope
@@ -337,9 +337,12 @@ The first commit carries a name and an e-mail address, and the push sends them t
 Without `--git-name` and `--git-email` they are the machine's git defaults; give the flags
 when those are not the ones the new repository should show.
 
-GitHub offers rulesets on public repositories, and on private ones only on a paid plan.
-Where it refuses, the project is still created and its CI runs, and the command ends with a
-`Remaining:` line: the default branch is not protected until `harness protect` succeeds.
+GitHub offers rulesets on public repositories, and on private ones only on a paid plan
+(G-0029). A new repository is private, so on a free plan it ends with one calm `Remaining:`
+line: the default branch gets its ruleset when the Engineer makes the repository public, and
+then `harness protect "checks / checks"` is run in it. Until then the pre-push hook, the deny
+rules and the draft gate protect it. Where GitHub refuses the ruleset on a public repository,
+the line says the branch is NOT protected and why.
 
 ### With and without sync
 
@@ -386,18 +389,34 @@ to refresh the lockfiles new projects start from. `node scripts/make-project.mjs
 ## Update
 
 ```sh
-pnpm add -D github:SanderGeraedts/harness#v0.5.0
+pnpm add -D github:SanderGeraedts/harness#v0.6.0
 pnpm exec harness sync
-pnpm exec harness changes v0.4.0 v0.5.0
+pnpm exec harness changes v0.5.0 v0.6.0
 ```
 
 Bump the tag in both workflows in the same pull request, and put the output of `changes` in
 its description: the global decisions that were added, changed or replaced. Per decision the
 project's architect opens a task to conform or records an overruling decision.
 
-From 0.4.0 to 0.5.0 nothing changes for a project that exists: `sync` writes what it wrote
-before, the two reusable workflows are as they were, and no global decision was added,
-changed or replaced. New are `harness create --sync | --no-sync` and the reusable
+From 0.5.0 to 0.6.0, also in that pull request:
+
+- `sync` rewrites the agents in `.claude/agents/` (each gains the rule that no agent reads,
+  prints or carries a secret), and adds two ask rules to `.claude/settings.json`:
+  `Bash(*confirmed=true*)` and `PowerShell(*confirmed=true*)`, so a workflow started by hand
+  with `confirmed=true` asks a human just as `--confirmed` does. Commit what it writes.
+- `rules/AGENTS.md` follows G-0026 to G-0029: secrets in a GitHub environment of the
+  private infrastructure repository, the NAS through `harness nas --remote`, spin-up in two
+  places, and new repositories private, with a ruleset once public.
+- `harness nas` says G-0027 where it said G-0022, and `create` G-0028 and G-0029.
+- Nothing changes for callers of `ci.yml`, `auto-merge.yml` and `backend.yml`.
+- `changes v0.5.0 v0.6.0` doesn't list G-0026 to G-0029: those records came with 0.5.0
+  (their `since` says 0.4.0, a version that was never tagged), and 0.6.0 is where the rules
+  and commands follow them. From 0.3.0, `changes v0.3.0 v0.6.0` lists them.
+
+From 0.3.0 to 0.5.0 (0.4.0 was never tagged) nothing changes in how a project that exists
+works: `sync` writes what it wrote before and the two reusable workflows are as they were.
+The global registry gained G-0026 to G-0029, which replace G-0022, G-0024 and G-0025; the
+rules follow them from 0.6.0. New are `harness create --sync | --no-sync` and the reusable
 `backend.yml`. An existing project doesn't gain sync by updating; `src/sync/README.md` in a
 project without it says what adding it takes.
 
@@ -427,37 +446,110 @@ Run from the project root with `pnpm exec harness <command>`.
 | `overrules` | lists the project decisions that overrule global ones |
 | `changes <fromTag> [toTag]` | lists the global decisions added, changed or replaced after `fromTag`, up to `toTag` (default: the installed version) |
 | `waiting [dir...]` | lists what waits on a human, for one or several project folders: open questions, tasks' `Remaining:` lines, and open GitHub issues that are assigned. Skips issues when `gh` is missing |
-| `sync` | writes or refreshes the generated files: `.claude/agents/*.md`, `.githooks/pre-push`, the push and `--confirmed` rules in `.claude/settings.json` (merged into the project's own), the registry README (keeping its project section) and the templates |
+| `sync` | writes or refreshes the generated files: `.claude/agents/*.md`, `.githooks/pre-push`, the push rules and the `--confirmed` and `confirmed=true` ask rules in `.claude/settings.json` (merged into the project's own), the registry README (keeping its project section) and the templates |
 | `init [login...] [--default-branch <name>]` | sets an existing repository up, then runs `sync` |
 | `adopt [--write] [login...] [--default-branch <name>]` | for a repository that already has registries: reports what is there, what would be added, which generated files differ, and which project decisions look like a global one; changes nothing. With `--write` it adds what is missing and overwrites nothing |
 | `hooks` | points git at `.githooks`; the project's `prepare` script |
 | `protect <check>... [--repo owner/name] [--dry-run]` | creates or updates the ruleset on the default branch through `gh api`: a pull request with 0 approvals, the named checks required (as reported by GitHub Actions), no deletion, no force-push, no bypass actors. Found again by its name, so it is safe to repeat |
-| `nas <method> [params-json] [--job] [--confirmed]` | calls the TrueNAS API; see below |
+| `nas [--remote] <method> [params-json] [--job] [--confirmed]` | calls the TrueNAS API; `--remote` through the workflow on the runner on the NAS. See *The NAS tool* |
+| `infra init \| check \| runner install \| runner status` | the private infrastructure repository and the runner on the NAS, for the Engineer only; see *The infrastructure repository* |
 | `create <name> [options]` | spins up a new project from the template, for the Engineer only; see *Create a new project* |
+
+## The infrastructure repository
+
+The secrets the infrastructure needs (the Netlify token, the Tailscale OAuth client, the
+TrueNAS key) are held by a GitHub environment of the Engineer's **private infrastructure
+repository**, and infrastructure work runs there as workflows (G-0026). No machine holds
+them, and no agent reads, prints or carries one. Which repository it is, is a setting, never
+written into the harness or a project:
+
+| Setting | Where | Default |
+| --- | --- | --- |
+| the repository, as `owner/name` | `HARNESS_INFRA_REPO`, or the user-level file `harness infra init --repo` writes (`harness/infra.json` in `XDG_CONFIG_HOME`, `APPDATA` or `~/.config`) | none: the commands stop and say how to set it |
+| the environment's name | `HARNESS_INFRA_ENVIRONMENT`, or `--environment` | `Prod` |
+
+Only the Engineer runs `harness infra` and `harness nas --remote`: inside a project the
+signed-in `gh` account must be in `.harness/engineers`, and anywhere it must have admin rights
+on the repository, which must be private.
+
+```sh
+pnpm exec harness infra init --repo <owner>/<name>   # once; remembered on this machine
+pnpm exec harness infra runner install               # once, at home: see below
+pnpm exec harness infra runner status                # online?
+pnpm exec harness infra check                        # proves the whole chain
+```
+
+- **`infra init`** creates the repository, private, when it doesn't exist (it never changes
+  an existing one's visibility). It writes the generated files: into an empty repository as
+  its first commit, otherwise through a pull request that it merges when it holds generated
+  files only. Run again, it says nothing changed. Then it checks, by name only, that the
+  environment has `NETLIFY_AUTH_TOKEN`, `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET` and
+  `TRUENAS_API_KEY`, and says whether `GHCR_PULL_TOKEN` is there yet; a missing one is a
+  `Remaining:` line for the Engineer. `--dir <folder>` only writes the files into a folder.
+  `--harness-ref` pins another tag or commit than the running harness's.
+- **The generated files:** four thin callers, each `on: workflow_dispatch`, that call the
+  harness's reusable workflows at the pinned tag with `secrets: inherit` and the
+  environment's name (`nas.yml`, `check.yml`, and `project-up.yml` and `project-down.yml`,
+  which do nothing until spin-up arrives in 0.7.0), and a README. Nothing in them names a
+  host, an address, a dataset or a token.
+- **The runner:** a self-hosted GitHub Actions runner, the official image at a pinned
+  version, as a custom app on the NAS, registered to the repository only and labelled
+  `harness-nas` (G-0027). Its own dataset under the parent dataset for apps keeps its
+  registration; it gets no container socket and no other dataset. Its app configuration
+  holds the NAS's address, the certificate's fingerprint and the parent dataset, for the jobs
+  that run on it.
+- **`infra runner install`** runs once, at home, with `TRUENAS_HOST`, `TRUENAS_API_KEY`,
+  `TRUENAS_CERT_SHA256` and `TRUENAS_APPS_DATASET` in the Engineer's environment: it creates
+  the dataset, gets a registration token from `gh` (valid for an hour) and creates the app
+  with it. The token goes from `gh` to the NAS inside the process, never to the output, a
+  file or a command line, and once the runner is online the app is updated without it. Run
+  again, it changes nothing.
+- **`infra runner status`** prints `harness-nas: online` (or `offline`), from any machine.
+- **`infra check`** starts `check.yml` and prints what it found: each secret by name, the
+  runner's configuration, and the NAS answering `core.ping` with the key from the
+  environment.
+
+The reusable workflows, `infra-nas.yml` and `infra-check.yml`, run one job on
+`[self-hosted, harness-nas]` in the environment they are given, check out the harness at the
+tag given, and run one `harness` command. One NAS job runs at a time.
 
 ## The NAS tool
 
-`harness nas` calls the TrueNAS API over the LAN as the agents' own admin user. It reads
-`TRUENAS_HOST`, `TRUENAS_API_KEY` and `TRUENAS_CERT_SHA256` from the environment, which
-exist only on the Engineer's machine, and sends the key only after the NAS's certificate
-matches the pinned fingerprint.
+`harness nas` calls the TrueNAS API (G-0027). Normally it runs through the private
+infrastructure repository, from any machine, with no key on it:
+
+```sh
+pnpm exec harness nas --remote core.ping
+pnpm exec harness nas --remote app.query '[[["name","=","<app>"]]]'
+pnpm exec harness nas --remote app.redeploy '["<app>"]' --job
+pnpm exec harness nas --remote pool.snapshot.create '[{"dataset":"<dataset>","name":"before-<change>"}]'
+```
+
+`--remote` starts `nas.yml` with the method, its parameters and whether it was confirmed,
+finds its run by a request id in the run's name, waits, and prints what the run recorded.
+That output may name a dataset or a host: it is for the session, never for a file. When the
+runner is offline, a run that waits for it is cancelled rather than left to run later.
+
+Without `--remote` it runs on this machine, on the home network, with `TRUENAS_HOST`,
+`TRUENAS_API_KEY` and `TRUENAS_CERT_SHA256` from the environment:
 
 ```sh
 pnpm exec harness nas --fingerprint          # print the certificate's fingerprint, to pin it
 pnpm exec harness nas system.info
-pnpm exec harness nas app.redeploy '["<app>"]' --job
-pnpm exec harness nas pool.snapshot.create '[{"dataset":"<dataset>","name":"before-<change>"}]'
 ```
+
+Either way the key is sent only after the NAS's certificate matches the pinned fingerprint.
 
 Destructive methods (deleting or overwriting data, datasets, disks and apps; rolling back,
 deleting or cloning snapshots; users, keys, certificates, sign-in and network; reboot,
-shutdown and OS updates) refuse to run without `--confirmed`, and Claude Code asks a human
-before any command that carries it. Creating a snapshot is not destructive.
+shutdown and OS updates) refuse to run without `--confirmed`, also with `--remote` and before
+any workflow is started, and Claude Code asks a human before any command that carries it.
+Creating a snapshot is not destructive.
 
 One-time setup, by the Engineer: create a TrueNAS user for the agents with full admin, no
-password and no SSH; give it an API key; run `--fingerprint` and compare the result with the
-certificate the TrueNAS UI shows; store the host, the key and the fingerprint as user
-environment variables. To revoke, delete the key in the TrueNAS UI.
+password and no SSH; give it an API key, and store it as `TRUENAS_API_KEY` in the
+infrastructure repository's environment; run `--fingerprint` at home and compare the result
+with the certificate the TrueNAS UI shows. To revoke, delete the key in the TrueNAS UI.
 
 ## Working on the harness
 

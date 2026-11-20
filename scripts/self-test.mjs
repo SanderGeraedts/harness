@@ -158,6 +158,12 @@ try {
   assert.match(ok(`${harness} changes v0.0.0 v${own.version}`), /## Added\n\n- G-0001 /);
   assert.match(ok(`${harness} changes v${own.version}`), /^No global decisions were added, changed or replaced/);
   fails(`${harness} changes v${own.version} v999.0.0`, /newer than the installed harness/);
+  // G-0026 to G-0029 carry since: 0.4.0, a version never tagged: they came with 0.5.0.
+  const changes04 = ok(`${harness} changes v0.3.0 v0.4.0`);
+  const section = (title) => changes04.match(new RegExp(`## ${title}\\n\\n([\\s\\S]*?)(?=\\n## |$)`))?.[1] ?? '';
+  assert.match(section('Added'), /^- G-0026 /m);
+  for (const id of ['G-0022', 'G-0024', 'G-0025']) assert.match(section('Replaced'), new RegExp(`^- ${id} .*\\(replaced by G-00\\d\\d\\)`, 'm'), `${id} is listed as replaced`);
+  assert.doesNotMatch(ok(`${harness} changes v0.5.0 v0.6.0`), /G-002[6-9]/, 'G-0026 to G-0029 shipped with 0.5.0');
 
   step('harness waiting');
   const waiting = ok(`${harness} waiting . .`);
@@ -172,9 +178,97 @@ try {
 
   step('harness nas refuses a destructive call, and gets to the connection otherwise');
   const nasEnv = { TRUENAS_HOST: 'localhost:9', TRUENAS_API_KEY: '', TRUENAS_CERT_SHA256: '' };
-  const refused = fails(`${harness} nas pool.dataset.delete`, /is destructive \(G-0022\): ask the Engineer/, { env: nasEnv });
+  const refused = fails(`${harness} nas pool.dataset.delete`, /is destructive \(G-0027\): ask the Engineer/, { env: nasEnv });
   assert.equal(refused.status, 2);
   fails(`${harness} nas pool.snapshot.create`, /Can't reach wss:\/\/localhost:9/, { env: nasEnv });
+
+  // No infrastructure repository is set for these steps, whatever this machine has.
+  const configDir = join(work, 'config');
+  mkdirSync(configDir);
+  const noInfra = { HARNESS_INFRA_REPO: '', HARNESS_INFRA_ENVIRONMENT: '', HARNESS_CONFIG_DIR: configDir };
+
+  step('harness nas --remote refuses a destructive call before any workflow is started');
+  const remoteRefused = fails(`${harness} nas --remote pool.dataset.delete '["x"]'`, /^pool\.dataset\.delete is destructive \(G-0027\): ask the Engineer in chat, then rerun with --confirmed\.$/m, { env: noInfra });
+  assert.equal(remoteRefused.status, 2);
+  assert.doesNotMatch(remoteRefused.out, /gh |workflow|only the Engineer/);
+
+  step('harness infra init --dir writes the infrastructure repository\'s files, and nothing else');
+  const infraDir = join(work, 'infra');
+  const initOut = ok(`${harness} infra init --dir "${infraDir}"`, { env: noInfra });
+  assert.match(initOut, /Nothing on GitHub was touched\./);
+  const infraFilesFound = [];
+  const walkInfra = (rel) => {
+    for (const e of readdirSync(join(infraDir, rel), { withFileTypes: true })) {
+      const path = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) walkInfra(path);
+      else infraFilesFound.push(path);
+    }
+  };
+  walkInfra('');
+  const callers = ['.github/workflows/check.yml', '.github/workflows/nas.yml', '.github/workflows/project-down.yml', '.github/workflows/project-up.yml'];
+  assert.deepEqual(infraFilesFound.sort(), [...callers, 'README.md'].sort());
+  for (const f of callers) {
+    const text = readFileSync(join(infraDir, f), 'utf8');
+    const uses = [...text.matchAll(/^\s*uses: (\S+)$/gm)].map((m) => m[1]);
+    assert.equal(uses.length, 1, `${f} calls one reusable workflow`);
+    assert.match(uses[0], new RegExp(`^SanderGeraedts/harness/\\.github/workflows/infra-[a-z-]+\\.yml@v${own.version.replaceAll('.', '\\.')}$`), `${f} is pinned to the tag`);
+    assert.match(text, /^ {4}secrets: inherit$/m, `${f} passes secrets: inherit`);
+    assert.match(text, /^ {6}environment: Prod$/m, `${f} names the environment`);
+    assert.match(text, new RegExp(`^ {6}harness-ref: v${own.version.replaceAll('.', '\\.')}$`, 'm'), `${f} passes the tag on`);
+    assert.match(text, /^ {2}workflow_dispatch:$/m);
+  }
+  // Each caller's reusable workflow exists in this harness.
+  for (const f of callers) {
+    const reusable = readFileSync(join(infraDir, f), 'utf8').match(/workflows\/(infra-[a-z-]+\.yml)@/)[1];
+    assert.ok(existsSync(join(root, '.github', 'workflows', reusable)), `the harness has ${reusable}`);
+  }
+  const everything = infraFilesFound.map((f) => readFileSync(join(infraDir, f), 'utf8')).join('\n');
+  for (const [what, re] of [
+    ['an IPv4 address', /\b\d{1,3}(\.\d{1,3}){3}\b/],
+    ['a dataset path', /\/mnt\//],
+    ['a tailnet name', /\.ts\.net\b/],
+    ['a Tailscale key', /tskey-/],
+    ['a GitHub token', /\bgh[pousr]_[A-Za-z0-9]/],
+    ['a Netlify token', /nfp_/],
+    ['a key or certificate', /-----BEGIN/],
+    ['a fingerprint', /([0-9A-F]{2}:){8}/i],
+  ])
+    assert.doesNotMatch(everything, re, `the generated files hold ${what}`);
+  ok(`${harness} infra init --dir "${infraDir}" --environment Other`, { env: noInfra });
+  assert.match(readFileSync(join(infraDir, '.github/workflows/nas.yml'), 'utf8'), /^ {6}environment: Other$/m);
+
+  step('harness infra and nas --remote refuse an account that is not the Engineer');
+  // A project that lists someone else. Signed in or not, this machine's account isn't them.
+  const elsewhere = join(work, 'not-the-engineer');
+  mkdirSync(join(elsewhere, '.harness'), { recursive: true });
+  writeFileSync(join(elsewhere, '.harness', 'engineers'), 'engineer-of-another-project\n');
+  const infraBin = `"${process.execPath}" "${join(installed, 'bin', 'harness.mjs')}"`;
+  // What only reads (check, status) is refused a look; the rest a change.
+  for (const [command, verb] of [['infra init', 'change'], ['infra init --repo someone/infra', 'change'], ['infra runner install', 'change'], ['nas --remote core.ping', 'change'], ['infra check', 'look at'], ['infra runner status', 'look at']])
+    fails(`${infraBin} ${command}`, new RegExp(`only the Engineer may ${verb} the infrastructure \\(G-0026\\)`), { cwd: elsewhere, env: { ...noInfra, HARNESS_INFRA_REPO: 'someone/infra' } });
+
+  step('Claude Code asks a human before a workflow is started with confirmed=true directly');
+  const ask = JSON.parse(get('.claude/settings.json')).permissions.ask;
+  for (const rule of ['Bash(*--confirmed*)', 'PowerShell(*--confirmed*)', 'Bash(*confirmed=true*)', 'PowerShell(*confirmed=true*)']) assert.ok(ask.includes(rule), `the ask rules hold ${rule}`);
+
+  step('harness infra and nas --remote stop with a plain message when no infrastructure repository is set');
+  // As the Engineer of this project, told who is signed in: CI has no gh account.
+  writeFileSync(
+    join(work, 'infra-unset.mjs'),
+    `import { main } from ${JSON.stringify(pathToFileURL(join(installed, 'lib', 'infra.mjs')).href)};
+import { remoteNas } from ${JSON.stringify(pathToFileURL(join(installed, 'lib', 'infra.mjs')).href)};
+const deps = { getLogin: () => 'engineer-one', gh: () => { throw new Error('gh must not be called'); }, interactive: false };
+const codes = [];
+for (const args of [['init'], ['check'], ['runner', 'install'], ['runner', 'status']]) codes.push(await main(args, process.cwd(), deps));
+codes.push(await remoteNas({ method: 'core.ping', params: [] }, { cwd: process.cwd(), ...deps }));
+console.log('codes', codes.join(','));
+`,
+  );
+  const unset = sh(`"${process.execPath}" "${join(work, 'infra-unset.mjs')}"`, { env: noInfra });
+  assert.match(unset.out, /^codes 1,1,1,1,1$/m, unset.out);
+  assert.equal(unset.out.match(/No private infrastructure repository is set \(G-0026\)\. Set it once with harness infra init --repo <owner>\/<name>, or set HARNESS_INFRA_REPO\./g)?.length, 5, unset.out);
+  assert.doesNotMatch(unset.out, /gh must not be called/);
+  assert.deepEqual(readdirSync(configDir), [], 'nothing was remembered');
 
   step('the pre-push hook refuses the default branch and lets a feature branch through');
   const hook = (ref) => sh(`printf 'refs/heads/x 1 ${ref} 0\\n' | sh .githooks/pre-push`);
@@ -264,7 +358,7 @@ try {
   step('harness create refuses anyone who is not the Engineer');
   // Outside a project and without --engineer nobody is the Engineer, signed in or not.
   const bin = `"${process.execPath}" "${join(installed, 'bin', 'harness.mjs')}"`;
-  fails(`${bin} create spun-up --purpose "Try the template." --no-github`, /only the Engineer creates a project \(G-0024\)/, { cwd: work });
+  fails(`${bin} create spun-up --purpose "Try the template." --no-github`, /only the Engineer creates a project \((G-0028)\)/, { cwd: work });
   assert.ok(!existsSync(join(work, 'spun-up')), 'a refused create must write nothing');
   assert.match(ok(`${harness} create --help`), /--harness-ref <ref>/);
 
