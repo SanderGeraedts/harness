@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { appendFileSync, rmSync } from 'node:fs';
+import { appendFileSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
 import { main, runChecks } from '../lib/check.mjs';
 import { init } from '../lib/init.mjs';
 import { HARNESS_ROOT } from '../lib/paths.mjs';
+import { SECTION_END } from '../lib/sync.mjs';
 import { writeIndex } from '../lib/tasks-index.mjs';
 import { cleanUp, decision, indexOf, question, task, tempProject, write } from './helpers.mjs';
 
@@ -76,6 +77,42 @@ describe('check', () => {
       "docs/decisions/D-0001-a.md: overrules names G-9999, which isn't in the installed harness's global registry",
       "docs/decisions/D-0001-a.md: overrules names D-0002, which isn't a global decision id (G-NNNN)",
     ]);
+  });
+
+  it('lets a project decision be replaced by a global decision of the installed harness', () => {
+    const dir = project();
+    write(dir, 'docs/decisions/D-0001-a.md', decision({ status: 'Replaced', replacedBy: ['G-0016'] }));
+    write(dir, 'docs/decisions/D-0002-b.md', decision({ id: 'D-0002', status: 'Replaced', replacedBy: ['D-0003', 'G-0017'] }));
+    write(dir, 'docs/decisions/D-0003-c.md', decision({ id: 'D-0003' }));
+    write(dir, 'docs/decisions/index.md', indexOf(['D-0001-a.md', 'D-0002-b.md', 'D-0003-c.md']));
+    assert.deepEqual(problems(dir), []);
+  });
+
+  it('fails when replaced_by names a global decision that does not exist, or replaces names one', () => {
+    const dir = project();
+    write(dir, 'docs/decisions/D-0001-a.md', decision({ status: 'Replaced', replacedBy: ['G-9999'] }));
+    write(dir, 'docs/decisions/D-0002-b.md', decision({ id: 'D-0002', status: 'Replaced', replacedBy: ['D-0009'] }));
+    write(dir, 'docs/decisions/D-0003-c.md', decision({ id: 'D-0003', replacedBy: ['G-0016'] }));
+    write(dir, 'docs/decisions/D-0004-d.md', decision({ id: 'D-0004', extra: 'replaces: [G-0016]\n' }));
+    write(dir, 'docs/decisions/index.md', indexOf(['D-0001-a.md', 'D-0002-b.md', 'D-0003-c.md', 'D-0004-d.md']));
+    assert.deepEqual(problems(dir), [
+      "docs/decisions/D-0001-a.md: replaced_by names G-9999, which isn't in the installed harness's global registry",
+      "docs/decisions/D-0002-b.md: names D-0009, which doesn't exist",
+      'docs/decisions/D-0003-c.md: replaced_by is set but status is Accepted',
+      "docs/decisions/D-0004-d.md: names G-0016, which doesn't exist",
+    ]);
+  });
+
+  it("ignores the registry README's project section, and reports damaged markers", () => {
+    const dir = project();
+    const path = join(dir, 'docs/decisions/README.md');
+    const readme = readFileSync(path, 'utf8');
+    writeFileSync(path, readme.replace('Nothing yet.', 'Decisions about the shop live in a second folder.'));
+    assert.deepEqual(problems(dir), []);
+    writeFileSync(path, readme.replace('## Records', '## Our records'));
+    assert.deepEqual(problems(dir), ['docs/decisions/README.md is missing or stale: run harness sync']);
+    writeFileSync(path, readme.replace(SECTION_END, ''));
+    assert.match(problems(dir)[0], /^docs\/decisions\/README\.md: the project section's marker lines are damaged/);
   });
 
   it('fails when a generated file is stale or missing, and when nobody is an Engineer', () => {

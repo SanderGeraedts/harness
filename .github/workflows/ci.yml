@@ -1,8 +1,16 @@
 # Reusable CI for projects that install the harness (G-0004, G-0012).
 #
 # Call it from the project's own CI workflow, which must be named "CI" for the auto-merge
-# workflow to find it, and pin it to the same tag as the installed harness:
+# workflow to find it, and pin it to the same tag as the installed harness. Give the caller
+# a workflow_dispatch trigger: the auto-merge workflow starts it on the default branch after
+# a merge, because a merge made with GITHUB_TOKEN starts no push workflows.
 #
+#   on:
+#     pull_request:
+#       types: [opened, synchronize, reopened, ready_for_review]
+#     push:
+#       branches: [main]
+#     workflow_dispatch:
 #   jobs:
 #     checks:
 #       uses: SanderGeraedts/harness/.github/workflows/ci.yml@vX.Y.Z
@@ -33,9 +41,19 @@ on:
         type: string
         default: ""
       artifacts:
-        description: Paths to upload as the "ci-artifacts" artifact, whether the job passed or not.
+        description: >-
+          Paths to upload as an artifact, one per line. By default whether the job passed or
+          not; see artifacts-only-on-failure.
         type: string
         default: ""
+      artifact-name:
+        description: The name of the uploaded artifact.
+        type: string
+        default: ci-artifacts
+      artifacts-only-on-failure:
+        description: Upload the artifacts only when a step failed, instead of on every run.
+        type: boolean
+        default: false
 
 jobs:
   checks:
@@ -66,10 +84,12 @@ jobs:
         run: ${{ inputs.e2e }}
 
       - name: Upload artifacts
-        if: always() && inputs.artifacts != ''
+        if: >-
+          always() && inputs.artifacts != '' &&
+          (failure() || !inputs.artifacts-only-on-failure)
         uses: actions/upload-artifact@v4
         with:
-          name: ci-artifacts
+          name: ${{ inputs.artifact-name }}
           path: ${{ inputs.artifacts }}
           if-no-files-found: ignore
           retention-days: 7

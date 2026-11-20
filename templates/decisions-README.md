@@ -1,7 +1,7 @@
 # Decision registry
 
-Written by `harness sync`; don't edit. This is the project's registry. The global registry,
-with the decisions every project starts from, is in
+Written by `harness sync`; don't edit, except for *Project notes* at the end. This is the
+project's registry. The global registry, with the decisions every project starts from, is in
 `node_modules/@sandergeraedts/harness/decisions/`.
 
 Every choice someone would later ask "why?" about, one file each. Agents read the global
@@ -30,6 +30,11 @@ the team works. Names, wording and small refactors are not decisions.
   says in its Context why the global decision doesn't fit. `pnpm exec harness overrules`
   lists every overrule; `pnpm exec harness check` fails when one names a decision that
   doesn't exist.
+- **When a global decision covers what a project decision says,** the project decision is
+  replaced by it: set it to `Replaced` with `replaced_by: [G-NNNN]` and move its index line
+  to *Replaced*, ending the line with `Replaced by G-NNNN.` in plain text (the global record
+  isn't in this folder, so don't link to it). `harness check` fails when that global
+  decision isn't in the installed harness. `replaces` only ever names project decisions.
 - **A choice that would suit every project** is still recorded here first, so work
   continues; the architect also proposes it as a global decision by pull request on the
   harness. The project decision stands whatever happens to the proposal.
@@ -54,3 +59,15 @@ the team works. Names, wording and small refactors are not decisions.
   its line in [index.md](index.md) in the same commit: `- [D-NNNN Title](file.md): one
   sentence`. `harness check` fails when the index and the files differ.
 - Commit with the record id first: `D-0003: record`, `Q-002: raise`, `Q-002: resolve`.
+
+## Project notes
+
+What this project adds about its own registry goes between the two marker lines below.
+`harness sync` keeps what is there and `harness check` ignores it; everything outside them
+is rewritten on every sync. Leave the marker lines themselves as they are.
+
+<!-- harness:project-section:start -->
+
+Nothing yet.
+
+<!-- harness:project-section:end -->

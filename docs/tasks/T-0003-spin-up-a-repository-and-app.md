@@ -105,3 +105,11 @@ One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
 - 2026-11-20 developer: `--harness-ref` sets what is installed and what the workflows are
   pinned to; it defaults to the tag of the running harness. Until this is released, a
   project is created with the branch's commit as the ref.
+- 2026-11-20 developer: the live run found two things, both now handled in `create`. The
+  push carries workflow files, which a `gh` token without the `workflow` scope may not push:
+  `create` checks this before it writes anything, and uses an empty repository of the same
+  name instead of refusing it, so a stopped run can be repeated. And GitHub refuses rulesets
+  on a private repository on a free plan: `create` then finishes with a `Remaining:` line
+  instead of failing.
+- 2026-11-20 developer: merged `main` with T-0005 (0.2.0) into the branch and set the
+  version to 0.3.0, the version that will carry `create`; the tag is the tester's.

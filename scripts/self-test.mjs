@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // The self-test (G-0015): packs the harness as a project would receive it, installs it into
 // a throwaway project, and runs its commands there.
-//   pnpm run self-test [--keep] [--e2e]
-//     --keep  leaves the throwaway project behind
-//     --e2e   also runs the created project's end-to-end tests (installs a browser)
+//   pnpm run self-test [--keep] [--keep-on-failure] [--e2e]
+// --keep leaves the throwaway projects behind; --keep-on-failure only when a step failed;
+// --e2e also runs the end-to-end tests of the project `harness create` makes (installs a
+// browser).
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -179,6 +180,86 @@ try {
   assert.notEqual(hook('refs/heads/main').status, 0);
   assert.equal(hook('refs/heads/feature').status, 0);
 
+  step('harness check accepts a decision replaced by a global one, and keeps the README\'s project section');
+  const replacedFile = 'docs/decisions/D-0002-pnpm-is-the-package-manager.md';
+  const replaced = get('docs/decisions/_template-decision.md')
+    .replace('id: D-NNNN', 'id: D-0002')
+    .replace('"The decision, as a statement"', '"pnpm is the package manager"')
+    .replace('date: YYYY-MM-DD', 'date: 2026-01-02')
+    .replace('status: Accepted', 'status: Replaced')
+    .replace(/replaced_by: \[\]/, 'replaced_by: [G-0016]');
+  put(replacedFile, replaced);
+  appendFileSync(join(project, 'docs/decisions/index.md'), '- [D-0002 pnpm is the package manager](D-0002-pnpm-is-the-package-manager.md): pnpm. Replaced by G-0016.\n');
+  assert.match(ok(`${harness} check`), /✓ decisions: 3 records, index complete, 1 overrule valid/);
+  put(replacedFile, replaced.replace('[G-0016]', '[G-9999]'));
+  fails(`${harness} check`, /replaced_by names G-9999, which isn't in the installed harness's global registry/);
+  put(replacedFile, replaced);
+  const readme = get('docs/decisions/README.md');
+  assert.match(readme, /<!-- harness:project-section:start -->\n\nNothing yet\.\n\n<!-- harness:project-section:end -->\n$/);
+  const ownNotes = readme.replace('Nothing yet.', 'Decisions about the shop live in docs/shop.');
+  put('docs/decisions/README.md', ownNotes);
+  ok(`${harness} check`);
+  assert.match(ok(`${harness} sync`), /generated files are current/);
+  put('docs/decisions/README.md', ownNotes.replace('# Decision registry', '# Our registry'));
+  fails(`${harness} check`, /docs\/decisions\/README\.md is missing or stale: run harness sync/);
+  assert.match(ok(`${harness} sync`), /wrote docs\/decisions\/README\.md/);
+  assert.equal(get('docs/decisions/README.md'), ownNotes, 'sync kept the project section and restored the rest');
+  ok(`${harness} check`);
+
+  step('harness adopt in a second project that already has a registry with a decision matching a global one');
+  const adopted = join(work, 'adopted');
+  const inAdopted = { cwd: adopted };
+  const putAdopted = (rel, content) => {
+    mkdirSync(dirname(join(adopted, rel)), { recursive: true });
+    writeFileSync(join(adopted, rel), content);
+  };
+  const getAdopted = (rel) => readFileSync(join(adopted, rel), 'utf8');
+  mkdirSync(adopted);
+  ok('git init -q -b main', inAdopted);
+  putAdopted('package.json', `${JSON.stringify({ name: 'adopted', private: true, version: '0.0.0', type: 'module', packageManager: own.packageManager }, null, 2)}\n`);
+  ok(`pnpm add -D "${join(work, tarball)}"`, inAdopted);
+  const template = get('docs/decisions/_template-decision.md').replace('date: YYYY-MM-DD', 'date: 2026-01-02');
+  putAdopted('docs/decisions/D-0001-pnpm-is-the-package-manager.md', template.replace('id: D-NNNN', 'id: D-0001').replace('"The decision, as a statement"', '"pnpm is the package manager"'));
+  putAdopted('docs/decisions/D-0002-the-buttons-are-green.md', template.replace('id: D-NNNN', 'id: D-0002').replace('"The decision, as a statement"', '"The buttons are green"').replace('"One sentence saying what was decided, for the index."', '"Green, because the logo is."'));
+  const ownIndex = '# Our decisions\n\n- [D-0001 pnpm is the package manager](D-0001-pnpm-is-the-package-manager.md): pnpm.\n- [D-0002 The buttons are green](D-0002-the-buttons-are-green.md): green.\n';
+  const ownFiles = {
+    'docs/decisions/index.md': ownIndex,
+    'docs/decisions/README.md': '# How we record decisions\n\nOur own text.\n',
+    'AGENTS.md': '# Our rules\n',
+    '.githooks/pre-push': '#!/bin/sh\nexit 0\n',
+  };
+  for (const [rel, content] of Object.entries(ownFiles)) putAdopted(rel, content);
+  const packageBefore = getAdopted('package.json');
+
+  const report = ok(`${harness} adopt`, inAdopted);
+  assert.match(report, /^harness adopt: what adopting harness \S+ means here\. Nothing was changed\./);
+  assert.match(report, /Found\n {2}docs\/decisions: 2 decisions, 0 questions\n {2}docs\/tasks: not there yet/);
+  assert.match(report, /Kept as they are \(nothing overwrites these\)\n {2}docs\/decisions\/index\.md: .*\n {2}AGENTS\.md: /);
+  assert.match(report, /Would add \(harness adopt --write\)\n {2}\.harness\/engineers\n/);
+  assert.match(report, /Differs from what the harness generates [^\n]*\n {2}\.githooks\/pre-push: sync replaces it\n {2}docs\/decisions\/README\.md: /);
+  assert.match(report, /\n {2}D-0001 "pnpm is the package manager" \(docs\/decisions\/D-0001-pnpm-is-the-package-manager\.md\)\n {4}looks like G-0016 "pnpm is the package manager, pinned in package\.json" \(shares: pnpm, package, manager/);
+  assert.doesNotMatch(report, /D-0002/, 'a decision that matches no global one is not a candidate');
+  for (const [rel, content] of Object.entries(ownFiles)) assert.equal(getAdopted(rel), content, `adopt changed ${rel}`);
+  assert.equal(getAdopted('package.json'), packageBefore, 'adopt changed package.json');
+  for (const f of ['.harness/engineers', 'CLAUDE.md', '.claude/agents/tester.md', 'docs/tasks/index.md'])
+    assert.ok(!existsSync(join(adopted, f)), `adopt without --write created ${f}`);
+
+  const wrote = ok(`${harness} adopt --write engineer-one`, inAdopted);
+  assert.match(wrote, /^harness adopt --write added what was missing and overwrote nothing:\n {2}created \.harness\/engineers\n/);
+  for (const [rel, content] of Object.entries(ownFiles)) assert.equal(getAdopted(rel), content, `adopt --write overwrote ${rel}`);
+  for (const f of ['.harness/engineers', 'CLAUDE.md', 'docs/lessons.md', '.claude/agents/tester.md', '.claude/settings.json', 'docs/decisions/_template-decision.md', 'docs/tasks/_template.md', 'docs/tasks/index.md'])
+    assert.ok(existsSync(join(adopted, f)), `adopt --write did not create ${f}`);
+  fails(`${harness} check`, /\.githooks\/pre-push is missing or stale: run harness sync/, inAdopted);
+
+  // The project takes the candidate: the global decision replaces its own.
+  putAdopted(
+    'docs/decisions/D-0001-pnpm-is-the-package-manager.md',
+    getAdopted('docs/decisions/D-0001-pnpm-is-the-package-manager.md').replace('status: Accepted', 'status: Replaced').replace(/replaced_by: \[\]/, 'replaced_by: [G-0016]'),
+  );
+  assert.match(ok(`${harness} sync`, inAdopted), /wrote \.githooks\/pre-push\nwrote docs\/decisions\/README\.md/);
+  assert.match(ok(`${harness} check`, inAdopted), /✓ decisions: 2 records, index complete, 0 overrules valid/);
+  assert.match(ok(`${harness} adopt`, inAdopted), /Would add\n {2}nothing: every file is there\n\nCandidates to replace with a global decision\n {2}none/);
+
   step('harness create refuses anyone who is not the Engineer');
   // Outside a project and without --engineer nobody is the Engineer, signed in or not.
   const bin = `"${process.execPath}" "${join(installed, 'bin', 'harness.mjs')}"`;
@@ -233,6 +314,6 @@ try {
   console.error(`\n✗ self-test failed at step ${steps}: ${e.message}`);
   process.exitCode = 1;
 } finally {
-  if (process.argv.includes('--keep')) console.log(`kept ${project}`);
+  if (process.argv.includes('--keep') || (process.exitCode && process.argv.includes('--keep-on-failure'))) console.log(`kept ${work}`);
   else rmSync(work, { recursive: true, force: true, maxRetries: 3 });
 }

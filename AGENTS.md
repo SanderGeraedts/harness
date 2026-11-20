@@ -22,7 +22,9 @@ is for working on the harness itself; what projects read is [rules/AGENTS.md](ru
 - **Global decisions are replaced, never edited** ([decisions/README.md](decisions/README.md)).
   A new or replaced record sets `since` or `changed` to the version that will carry it.
 - **Every change goes through a pull request.** Never push to `main` and never skip git
-  hooks. Run `git config core.hooksPath .githooks` once after cloning.
+  hooks. Run `git config core.hooksPath .githooks` once after cloning. After a merge the
+  auto-merge workflow starts CI on `main`, because a merge made with `GITHUB_TOKEN` starts
+  no push workflows.
 - **Everything a project receives is tested here** (G-0015). A new command or generated
   file gets a unit test and a step in `scripts/self-test.mjs`, in the same pull request.
 - **No build step and no install script:** projects use the package as checked in. Keep

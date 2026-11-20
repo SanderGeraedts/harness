@@ -73,6 +73,8 @@ developer instead of fixing it.
 - **Decisions are the source of truth,** not chat history. A choice that would need a
   discussion to reverse becomes a decision record, in the same pull request as the work.
 - **Decisions are replaced, never edited,** except to redact personal details (G-0003).
+  A project decision that a global one covers is replaced by it: `status: Replaced` and
+  `replaced_by: [G-NNNN]`.
 - **A choice that would suit every project** is recorded in the project first; the architect
   also proposes it on the harness by pull request (G-0006).
 
@@ -118,7 +120,8 @@ architect turns a lesson that repeats into a proposed rule change for the harnes
 - **Use pnpm** (G-0016): `pnpm install`, `pnpm run <script>`, `pnpm exec`. Never `npm` or
   `npx`, and never commit a `package-lock.json`.
 - **Generated files** (`.claude/agents/`, `.githooks/pre-push`, the registry README and
-  templates) come from `pnpm exec harness sync`. Don't edit them; change the harness.
+  templates) come from `pnpm exec harness sync`. Don't edit them; change the harness. The
+  one exception is the registry README's project section, between its two marker lines.
 - **Only production reaches the real backend** (G-0019). Local development, tests and
   previews run on seeded demo data or a throwaway backend.
 - **Manage the NAS only with `pnpm exec harness nas`** (G-0022), and only in a session with
