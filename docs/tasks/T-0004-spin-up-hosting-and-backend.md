@@ -1,10 +1,10 @@
 ---
 id: T-0004
 title: "Spin up hosting and the backend, with automatic snapshots"
-description: "Spin-up also creates the Netlify site with its subdomain and a PocketBase app on the NAS with its own Funnel address and a periodic snapshot task, using tokens that exist only in the Engineer's environment."
-status: Open                # Open | Doing | Done | Dropped
-depends_on: [T-0003]        # tasks that must be Done first
-decisions: [G-0007, G-0009, G-0018, G-0019, G-0022, G-0023, G-0024]
+description: "harness create also starts workflows in the private infrastructure repository that create the Netlify site and, for a project that syncs, a PocketBase app on the NAS with its own Funnel address and snapshot task; harness infra down removes a project again, after the Engineer's yes."
+status: Doing               # Open | Doing | Done | Dropped
+depends_on: [T-0003, T-0007, T-0008]  # tasks that must be Done first
+decisions: [G-0007, G-0009, G-0011, G-0018, G-0019, G-0020, G-0023, G-0026, G-0027, G-0028, G-0029]
 raised_on: 2026-11-20
 done_on: ""
 result: []                  # PR URLs
@@ -12,38 +12,351 @@ result: []                  # PR URLs
 
 # Goal
 
-Phase 4, the second half of spin-up (G-0024). After T-0003 has created the repository and
-the app, the same prompt also creates where it runs:
+The second half of spin-up (G-0028). After `harness create` has made the repository and the
+app (T-0003), the same command also creates where the project runs:
 
-- the Netlify site with its subdomain and deploy previews, using a Netlify token from the
-  Engineer's environment;
-- a PocketBase app on the NAS, on its own dataset, through `harness nas` (G-0022);
-- its own Tailscale Funnel address, using a Tailscale OAuth client from the Engineer's
-  environment;
-- a periodic ZFS snapshot task on the project's dataset (G-0023);
-- the production build wired to the backend's address, and nothing else (G-0019);
-- the backend publish workflow, started by auto-merge after a backend change (G-0011).
+- the Netlify site with its subdomain and a deploy preview for every pull request;
+- for a project that syncs: a PocketBase app on the NAS, on its own dataset, with its own
+  Tailscale Funnel address and a periodic snapshot task (G-0023);
+- the production build given the backend's address, and nothing else given it (G-0019).
+
+And a separate command removes a project's infrastructure again, after the Engineer's yes.
+
+No secret is on any machine: the work runs as workflows in the Engineer's **private
+infrastructure repository**, which holds the secrets in a GitHub environment (G-0026).
+
+This file holds the architecture of the whole of it, under *Notes*. It is built in three
+slices, each its own task and pull request:
+
+| Slice | Task | Delivers | Release |
+| --- | --- | --- | --- |
+| 1 | [T-0007](T-0007-the-infrastructure-repository-the-runner-and-nas-by-workflow.md) | the generator of the private infrastructure repository, the runner on the NAS, `harness nas --remote` | 0.4.0 |
+| 2 | [T-0008](T-0008-the-templates-backend-sign-in-and-sync.md) | the template's backend, sign-in and sync, and `create --sync` / `--no-sync` | 0.5.0 |
+| 3 | this task | the spin-up and teardown workflows, `create` starting them, the live proof | 0.6.0 |
+
+Slices 1 and 2 don't depend on each other and can be built at the same time. This task's
+own slice starts when both are Done.
 
 # Done when
 
-- Spin-up of a throwaway project gives a production address that serves the app and syncs
-  with its backend, and a deploy preview that runs on seeded data without reaching it.
-- `harness nas` shows the project's snapshot task, and a snapshot it has taken.
-- No token, key, host or address is written to the repository or printed.
-- The command refuses to run when `harness role` is not `engineer`.
-- The Engineer confirms the throwaway project and its infrastructure were removed again.
+For this task's own slice (3). Each line is run by the tester; the live ones in a session
+with the Engineer, on a throwaway project with a name no real project has.
+
+1. `pnpm test`, `pnpm run self-test` and `pnpm run check` pass, and the self-test has the
+   steps listed under *What the self-test covers* below.
+2. **Refused for anyone else.** `harness create`, `harness infra up` and `harness infra
+   down`, run as an account that is not the Engineer, exit 1 with "only the Engineer…"
+   before anything is started.
+3. **Live spin-up.** `harness create <throwaway> --sync --purpose "…"` ends with `Done.` and
+   prints the site's address. Then:
+   - the site's address serves the app, and shows the sign-in screen (production);
+   - the spin-up run's `checks` job is green: from a GitHub-hosted runner the backend's
+     `/api/health` answers 200; the admin screen and the superuser sign-in answer 404; the
+     admin port doesn't answer at all; the CORS header is given to the site's origin and to
+     no other; and the production bundle holds the backend's address.
+4. **Only production knows the backend.** A pull request in the throwaway repository gets a
+   deploy preview. It shows the band "Demo data · sync is off" and no sign-in screen, and a
+   search of every file the preview serves finds no address ending in the tailnet's domain.
+5. **Snapshots.** Through `harness nas --remote`: `pool.snapshottask.query`, filtered to the
+   project's dataset, shows one enabled, recursive task; the NAS's snapshot query, filtered
+   the same way, shows at least one snapshot. The tester reads the dataset's name from the
+   run, and doesn't write it down.
+6. **A second run changes nothing.** `harness infra up <throwaway>` again ends green and
+   reports every step as "already there"; no second site, key, dataset or task exists.
+7. **Nothing leaked.** In the throwaway repository and in this pull request's diff, a search
+   finds no token, no auth key, no address ending in the tailnet's domain, no dataset path
+   and no address of the NAS. The command's own output shows the site's address and no
+   other address.
+8. **Sync works in production.** The Engineer makes the superuser and one user (see
+   *What stays a human's*), signs in on two devices, changes an item on each while offline,
+   and confirms both end up with the same data.
+9. **Teardown.** `harness infra down <throwaway>` without `--confirmed` lists what would be
+   deleted and exits 2 without starting anything. With `--confirmed`, after the Engineer's
+   yes in chat, the run ends green; the site's address no longer serves the app, the
+   backend's address no longer answers, and `pool.dataset.query` no longer shows the
+   dataset. `harness infra down` on a name whose dataset was not made by spin-up refuses.
+10. **The Engineer confirms** the throwaway repository, its container image and its machine
+    in the tailnet's admin console are gone, which only they can remove.
+
+3, 4, 8 and 9 need Q-001 answered; see *Open question*.
 
 # Notes
 
-- This creates infrastructure and may cost money: it runs only in a session with the
-  Engineer (G-0009), and each destructive NAS call still asks (G-0022).
-- Removing a spun-up project is destructive and needs its own design; raise it as a question
-  before building it.
-- A project created before this exists needs its snapshot task added by hand (G-0023).
+## Where everything lives
+
+**In the harness** (public, tested here, released by tag):
+
+- Commands, in `lib/` with unit tests:
+  - `harness infra init`, `harness infra runner …`, `harness nas --remote` (T-0007);
+  - `harness create --sync | --no-sync` (T-0008);
+  - `harness infra up <project>` and `harness infra down <project> --confirmed`, and
+    `create` calling `infra up` as its last step (this task).
+- The logic of every infrastructure step, in `lib/infra/`, as functions that take their
+  outside world as arguments (a `fetch`, a NAS client), so the unit tests run them against
+  fakes: the Netlify calls, the Tailscale calls, the app's compose file, the dataset and
+  snapshot task, the outside checks. A workflow step is one line that runs
+  `harness infra step <name>`.
+- Reusable workflows, in `.github/workflows/`, each `on: workflow_call`:
+  `infra-nas.yml`, `infra-check.yml` (T-0007), `infra-project-up.yml`,
+  `infra-project-down.yml` (this task), and `backend.yml` for a project's backend image
+  (T-0008).
+- The template's backend, sign-in and sync, as an overlay (`template-sync/`) that `create`
+  copies over `template/` when the project syncs (T-0008).
+
+**In the private infrastructure repository** (thin, generated by `harness infra init`,
+never edited by hand):
+
+- One caller workflow per reusable one, `on: workflow_dispatch`, a dozen lines each:
+  `nas.yml`, `check.yml`, `project-up.yml`, `project-down.yml`. Each passes its inputs on,
+  with `secrets: inherit`, the environment's name and the harness tag it is pinned to.
+- A README that says what the repository is and that its files are generated.
+- Nothing per project, and nothing that identifies the infrastructure. What exists is read
+  from Netlify and the NAS each time; they are the state.
+- Its GitHub environment (default name `Prod`, a setting) holds `NETLIFY_AUTH_TOKEN`,
+  `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET` and `TRUENAS_API_KEY`. The Engineer made it; the
+  harness only checks the names are there.
+
+**On the NAS:**
+
+- The runner app, with the NAS's address, the certificate's fingerprint and the parent
+  dataset for apps in its own configuration (T-0007).
+- Per project: one dataset with two children (`pb_data`, `tailscale`), a snapshot task, and
+  one custom app of three containers.
+
+**In a created project** (with `--sync`; T-0008):
+
+- `backend/`: the image's `Dockerfile`, `pb_migrations/`, `pb_hooks/`, `funnel.json` (the
+  paths the internet may reach), `smoke-test.sh` and a README.
+- `.github/workflows/backend.yml`, a caller of the harness's reusable `backend.yml`, and the
+  auto-merge caller with `backend-workflow` and `backend-paths` set (G-0011).
+- `src/sync/` and `src/auth/`, and the project decisions that go with them.
+- Nothing about where it runs: no address, no site id, no dataset.
+
+## The settings
+
+| Setting | Where | Default |
+| --- | --- | --- |
+| the private infrastructure repository, as `owner/name` | `HARNESS_INFRA_REPO` in the Engineer's environment, or the user-level file `harness infra init` writes | none: the commands stop and say how to set it |
+| the environment's name | `HARNESS_INFRA_ENVIRONMENT`, and written into the generated callers | `Prod` |
+| the NAS's address, fingerprint and parent dataset for apps | the runner app's configuration, on the NAS | set once, at the runner's install |
+| snapshot schedule and how long one is kept | constants in `lib/infra/` | every hour, two weeks |
+
+None of these is a secret, and none is written into the harness or a project.
+
+## The sequence of spin-up
+
+`harness create <name> [--sync]`, in a session with the Engineer, from any machine.
+
+**Locally, before anything is written** (`create`):
+
+1. The Engineer check, as now.
+2. `gh`'s token has the `workflow` scope, as now.
+3. New: the infrastructure is ready. The setting names a repository the account can write
+   to; its environment has the four secret names; and, when the project syncs, the runner
+   is online (`gh api repos/<it>/actions/runners`). Otherwise stop, and say which one-time
+   step is missing. `--no-infra` skips this and everything below marked *new*.
+4. New: the Netlify GitHub App can see repositories of this account (`gh api
+   user/installations`). Covering all repositories: go on. Covering selected ones: `create`
+   adds the new repository to it after creating it (`PUT
+   user/installations/<id>/repositories/<repository id>`). Not installed, or the call is
+   refused: spin-up goes on without hosting and ends with a `Remaining:` line telling the
+   Engineer to give the app access and run `harness infra up <name>`.
+
+**Locally** (`create`, as built in T-0003): the app from the template, the first commit, the
+repository (private by default, G-0029), the first push, the first CI run, and the ruleset
+where GitHub allows one. For a private repository it says, once and calmly, that there is no
+ruleset until the repository is public (T-0007 changes the wording).
+
+5. New, when the project syncs: wait for the first run of the project's `backend` workflow
+   on `main`, which publishes the image `ghcr.io/<owner>/<name>-backend:stable`.
+
+**Locally, last** (`harness infra up <name>`, which `create` calls and which can be run
+again by itself, from the project's folder):
+
+6. Read `backend/funnel.json` and check it (see *The backend app*).
+7. Start `project-up.yml` in the private infrastructure repository with `gh workflow run`.
+   Inputs: the project's name, `owner/name`, whether it syncs, the Funnel paths as JSON, the
+   Netlify app's installation id, and a request id. The run is named after the request id,
+   which is how the command finds it again.
+8. Wait for the run. Print its conclusion and the one line of its log that carries the
+   site's address. On failure, print the failed step's name and how to look at the run; a
+   second `harness infra up` continues where it stopped.
+
+**In the workflow** (`infra-project-up.yml`), four jobs:
+
+| Job | Runs on | Needs | Does | Gives |
+| --- | --- | --- | --- | --- |
+| `site` | GitHub's runner | `NETLIFY_AUTH_TOKEN` | Finds the Netlify site linked to `owner/name`, or creates it: named after the project, linked through the app's installation, build settings from `netlify.toml`, deploy previews on. | the site's id and address |
+| `address` | GitHub's runner | the Tailscale OAuth client | Only when the project syncs. Joins the tailnet as a short-lived node tagged `tag:harness`, reads the tailnet's DNS suffix, and leaves. | the backend's address: `https://<name>.<suffix>` |
+| `backend` | the runner on the NAS | `TRUENAS_API_KEY`, the OAuth client, the site's address | Only when the project syncs. See *The backend app*. | a running app with a snapshot task |
+| `checks` | GitHub's runner | `NETLIFY_AUTH_TOKEN`, both addresses | The outside checks (below). Then sets `BACKEND_URL` on the site for the **production context only**, starts a production build, waits for it, and checks that the bundle it serves holds the address. | green, or the step that failed |
+
+Order: `site`, then `address` and `backend` side by side, then `checks`. For a project that
+doesn't sync, only `site` runs, and no `BACKEND_URL` is set.
+
+Every step first looks for what is already there and says "already there" instead of
+making a second one.
+
+One NAS job runs at a time (a `concurrency` group on the runner's jobs).
+
+## The backend app
+
+The proven layout: one custom app per project, three containers, generated by
+`lib/infra/compose.mjs` from the project's name, its image, the site's origin and the
+dataset's path.
+
+- **A Tailscale sidecar.** Its own auth key; state in the `tailscale` child dataset;
+  Funnel on 443 with the path allowlist; the admin screen on a second port that only the
+  tailnet reaches. The serve configuration is an inline `configs:` entry of the compose
+  file, so no file has to be written to the NAS (mind the `$$` for its `${TS_CERT_DOMAIN}`).
+- **PocketBase,** in the sidecar's network, so no port is published on the NAS. The
+  project's image at `:stable`, data in the `pb_data` child dataset, CORS open to the site's
+  origin only.
+- **Watchtower,** which updates the PocketBase container only.
+
+Image versions are pinned as constants in the harness and bumped by pull request.
+
+The `backend` job, in order, through the NAS client (`harness nas`'s library form):
+
+1. **The dataset:** `pool.dataset.create` for `<parent>/<name>` and its two children, with
+   the ZFS user property `harness:project=<name>`. That property is what teardown looks for.
+2. **The snapshot task** (G-0023): `pool.snapshottask.create` on the project's dataset,
+   recursive, every hour, each kept two weeks; then run it once, so a first snapshot exists
+   before any data does.
+3. **The auth key:** from the Tailscale API with the OAuth client: one use, pre-authorised,
+   tagged `tag:harness`, valid for minutes. It is made in this job because a job can't hand
+   a secret to another. A tagged node's key doesn't expire.
+4. **The app:** `app.create` with the compose file, carrying the auth key. When the app
+   already exists: `app.update` with the regenerated compose file and no key.
+5. **Wait** until the app runs, then `app.update` once more without the auth key. The login
+   is in the `tailscale` dataset by then.
+
+**The Funnel paths** come from the project's `backend/funnel.json`, a list of path prefixes.
+`harness infra up` and the workflow both refuse a list that holds anything but paths under
+`/api/`, or that would open `/api/` whole, the admin screen (`/_/`), or the superusers
+collection. Changing the list is a pull request in the project, then `harness infra up`.
+
+**The outside checks,** from a GitHub-hosted runner that is *not* on the tailnet, with up to
+ten minutes of patience for a new Funnel name: `/api/health` is 200; `/_/` and
+`/api/collections/_superusers/auth-with-password` are 404; the admin port doesn't connect;
+`/api/health` with the site's origin gets the CORS header, and with another origin doesn't.
+The CORS check also proves the name leads to *this* project's backend.
+
+## Hosting
+
+- The site is named after the project; if Netlify has the name already, the name gets a
+  short suffix. The address is `<site name>.netlify.app`. A domain of the Engineer's own is
+  not part of spin-up: it costs money or touches DNS, so it is asked for separately.
+- Production gets `BACKEND_URL`, with the context `production` and the scope "builds".
+  Previews and branch deploys get nothing (G-0019). `vite.config.ts` ignores the variable
+  outside production as well, so there are two locks.
+- The content security policy can't name the backend in `netlify.toml`: the address may not
+  be in the repository. T-0008 moves the policy to a `_headers` file written at build time,
+  which adds the backend's origin to `connect-src` in a production build only.
+
+## Snapshots
+
+Set up in the `backend` job, step 2, before the app first starts. Done-when 5 shows the
+task and a snapshot. Rolling back or deleting a snapshot stays destructive (G-0027) and is
+not part of any workflow here except teardown.
+
+## Teardown
+
+`harness infra down <project> --confirmed`, from any machine, the Engineer only.
+
+- Without `--confirmed` it prints what would be deleted (the site, the app, the dataset
+  with every snapshot of it) and exits 2. Claude Code asks a human before any command that
+  carries `--confirmed`, and the agent has asked in chat first (G-0027, G-0028).
+- With it, it starts `project-down.yml` with the project's name twice: as the project and
+  as the confirmation. The workflow refuses when they differ.
+- The workflow deletes, in this order: the Netlify site, the app, the snapshot task, the
+  dataset. Each only when it is provably the project's:
+  - the site only when it is linked to `owner/name`;
+  - the dataset only when it carries `harness:project=<name>` and sits directly under the
+    parent dataset. A dataset made by hand can never be deleted by this command.
+- It ends with a `Remaining:` line for what only the Engineer can remove: the machine in
+  the tailnet's admin console (the OAuth client may only write auth keys), the repository,
+  and its container image.
+- There is no "undo". The dataset's snapshots go with it.
+
+## What stays a human's
+
+Once, before the first spin-up (T-0007 checks each and says which is missing):
+
+- `gh auth refresh -s workflow`.
+- The private infrastructure repository with its environment and four secrets (made).
+- In the tailnet's policy: nodes tagged `tag:harness` may use Funnel, with MagicDNS and
+  HTTPS certificates on.
+- The Netlify GitHub App installed for the account, best for all repositories.
+- The runner's install, at home (T-0007).
+
+Per project, after spin-up, listed by `create` as `Remaining:`:
+
+- The superuser and the first user. A new PocketBase has neither, and sign-up is closed.
+  The Engineer makes the superuser in the PocketBase container's shell on the NAS and the
+  user in the admin screen, from a device on the tailnet. No workflow does this: it would
+  have to invent a password a human then needs. Who may sign in is the Engineer's (G-0009).
+
+## What the self-test covers
+
+Without any real infrastructure (G-0015):
+
+- Unit tests, with fakes for `fetch`, `gh` and the NAS client:
+  - the compose file for an example project, compared with a stored one; it holds no key
+    after the second update;
+  - the Funnel path check: what it accepts and each thing it refuses;
+  - each job's steps in order, and a second run that creates nothing;
+  - a failing step: the error names the step and holds no secret from the fake;
+  - teardown: refuses without `--confirmed`, with a wrong confirmation, for a site linked
+    to another repository, and for a dataset without the property;
+  - `infra up` finding its run by the request id, and printing only the site's address.
+- Self-test steps, in the throwaway project:
+  - `create` and `infra up` refuse an account that is not the Engineer;
+  - `infra up` and `infra down` stop with a plain message when no infrastructure
+    repository is set;
+  - `infra down` without `--confirmed` exits 2;
+  - the reusable workflows parse, every job that uses a secret names the environment, and
+    only `backend` and the NAS jobs run on the self-hosted runner.
+
+## The live proof
+
+- A throwaway project with a made-up name, private, created with `--sync`.
+- The tester runs Done-when 3 to 9 in a session with the Engineer and writes the results
+  under *Test*: commands and outcomes, with every address, dataset and run address left
+  out. The site's address may be shown; the backend's never.
+- The search of Done-when 7 covers the throwaway repository's files and history and this
+  pull request's diff, for: `tskey-`, the tailnet's domain ending, `/mnt/`, IPv4
+  addresses, and the Netlify site id.
+- It ends with teardown (Done-when 9 and 10), so nothing of the proof stays behind.
+
+## Open question
+
+- **Q-001** ([how does the NAS pull a private project's backend image?](../decisions/Q-001-how-does-the-nas-pull-a-private-projects-backend-image.md)):
+  a private repository's image is private, and the NAS has to be able to pull it. Either a
+  read-only pull token is added to the environment, or the image is made public. Both are
+  the Engineer's. It blocks only the part of this task's slice where the NAS pulls the
+  image, and so the live proof. T-0007 and T-0008 don't wait for it, and neither does the
+  rest of this slice's code.
+
+## Risks to prove early
+
+- That a job in a reusable workflow, called with `secrets: inherit` and naming an
+  environment, receives the caller repository's environment secrets. T-0007 proves it with
+  the first `nas.yml` run. If it doesn't hold, the generator writes the jobs out in full
+  instead of calling reusable ones; nothing else changes.
+- That Netlify's API links a private repository through the app's installation without a
+  deploy key. If it needs one, `create` adds the key Netlify gives to the repository with
+  `gh`.
+- That the hosted runner can read the tailnet's DNS suffix after joining with a key from
+  the OAuth client. If it can't, the suffix becomes a fifth secret, and that is a question
+  for the Engineer.
 
 # Design
 
-Nothing visible beyond what T-0003 designs.
+Nothing visible in the app beyond what T-0008 designs. What the Engineer sees is the output
+of `harness create`, `harness infra up` and `harness infra down`: one `✓` line per step in
+the style `create` has now, the site's address at the end, and `Remaining:` lines for what
+a human still has to do.
 
 # Test
 
@@ -52,3 +365,20 @@ Not yet tested.
 # Log
 
 One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
+
+- 2026-11-20 engineer: decided that the secrets are held by a GitHub environment of a
+  private infrastructure repository and that infrastructure work runs there as workflows,
+  started with `gh workflow run` from any machine; that no agent ever reads, prints or
+  carries a secret; and that new repositories stay private by default, without a ruleset
+  until they are public. Recorded as G-0026 to G-0029, which replace G-0022, G-0024 and
+  G-0025.
+- 2026-11-20 architect: wrote the architecture (under *Notes*) and split the task in three
+  slices: T-0007, T-0008 and this one. Decided that a workflow reaches the NAS through a
+  self-hosted runner that is an app on the NAS (in G-0027): no setting-up by hand beyond
+  its install, managing the NAS doesn't depend on the tailnet, and only the Engineer can
+  start a job. Decided that the NAS's address, fingerprint and parent dataset live in the
+  runner's configuration; that teardown deletes only what carries the project's mark; and
+  that the first accounts on a new backend are made by the Engineer.
+- 2026-11-20 architect: raised Q-001, how the NAS pulls a private project's backend image.
+  Handed T-0007 to the developer and T-0008 to the UX designer. This task's own slice waits
+  for both, and its live proof for Q-001.

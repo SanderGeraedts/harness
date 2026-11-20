@@ -69,3 +69,6 @@ Not yet tested.
 One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
 
 - 2026-11-20 tester: raised, from the *Test* sections of T-0005 and T-0003.
+- 2026-11-20 architect: of the three points in *Notes* that waited for the Engineer, the
+  first is decided: new repositories stay private, and get their ruleset when they are
+  public (G-0029); T-0007 changes `create`'s wording. The other two still wait.
