@@ -33,3 +33,18 @@ jobs:
         !/tmp/harness-self-test-*/*/node_modules/
       artifact-name: self-test-project
       artifacts-only-on-failure: true
+
+  # The template's end-to-end tests: the self-test once more with --e2e, which also runs
+  # Playwright in the project `harness create` makes. Its own job, so the checks stay quick.
+  template-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/self-test.mjs --e2e

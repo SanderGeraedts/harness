@@ -6,12 +6,11 @@ One file per task, from [_template.md](_template.md). Pick from *Open* a task wh
 
 ## Open
 
-- [T-0003 Spin up a repository and app from one prompt](T-0003-spin-up-a-repository-and-app.md): A command the Engineer runs that creates a new repository with the app from the default stack, the harness installed and initialised, CI and auto-merge wired, and the default branch protected.
 - [T-0004 Spin up hosting and the backend, with automatic snapshots](T-0004-spin-up-hosting-and-backend.md): Spin-up also creates the Netlify site with its subdomain and a PocketBase app on the NAS with its own Funnel address and a periodic snapshot task, using tokens that exist only in the Engineer's environment.
 
 ## Doing
 
-None.
+- [T-0003 Spin up a repository and app from one prompt](T-0003-spin-up-a-repository-and-app.md): A command the Engineer runs that creates a new repository with the app from the default stack, the harness installed and initialised, CI and auto-merge wired, and the default branch protected.
 
 ## Done
 

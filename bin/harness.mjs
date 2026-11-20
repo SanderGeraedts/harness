@@ -21,6 +21,8 @@ const USAGE = `harness <command>
                                  create or update the ruleset on the default branch
   nas <method> [params-json] [--job] [--confirmed] | --fingerprint
                                  call the TrueNAS API
+  create <name> [options]        spin up a new project from the template (the Engineer only);
+                                 harness create --help lists the options
 `;
 
 const COMMANDS = {
@@ -36,6 +38,7 @@ const COMMANDS = {
   hooks: () => import('../lib/sync.mjs').then((m) => m.hooksMain),
   protect: () => import('../lib/protect.mjs').then((m) => m.main),
   nas: () => import('../lib/nas.mjs').then((m) => m.main),
+  create: () => import('../lib/create.mjs').then((m) => m.main),
 };
 
 const [command, ...args] = process.argv.slice(2);
