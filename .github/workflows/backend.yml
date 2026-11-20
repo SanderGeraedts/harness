@@ -1,0 +1,164 @@
+# Reusable backend workflow for a project created with `harness create --sync` (G-0018,
+# G-0019): builds the image from the project's backend/ folder, starts it on an empty
+# database, runs the project's smoke test and its backend tests against it, and, on the
+# default branch only, publishes it to the GitHub container registry as
+# ghcr.io/<owner>/<repository>-backend, tagged :stable and :sha-<commit>.
+#
+# It relies on what the template puts in backend/: `throwaway.sh` builds the image
+# `backend-throwaway` and starts the container `backend-throwaway` on 127.0.0.1:8090 with a
+# superuser for tests; `smoke-test.sh` checks it.
+#
+# Call it from the project's own workflow, pinned to the same tag as the installed harness.
+# The caller grants the permissions; give it a workflow_dispatch trigger, because the
+# auto-merge workflow starts it on the default branch after merging a backend change:
+#
+#   on:
+#     pull_request:
+#       paths: ["backend/**", ".github/workflows/backend.yml"]
+#     push:
+#       branches: [main]
+#       paths: ["backend/**", ".github/workflows/backend.yml"]
+#     workflow_dispatch:
+#   permissions:
+#     contents: read
+#   jobs:
+#     image:
+#       # The most this workflow's jobs may ask for. Only its `publish` job takes
+#       # packages: write, and that job never runs for a pull request; the job that builds
+#       # and tests, which does, only reads.
+#       permissions:
+#         contents: read
+#         packages: write
+#       uses: SanderGeraedts/harness/.github/workflows/backend.yml@vX.Y.Z
+name: Backend (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      node-version-file:
+        description: The file that names the Node version.
+        type: string
+        default: .nvmrc
+      tests:
+        description: >-
+          The project's tests against the throwaway backend, as a shell script. They get
+          its address in BACKEND_TEST_URL.
+        type: string
+        default: pnpm run test:backend
+      publish:
+        description: Publish the image when this runs on the default branch.
+        type: boolean
+        default: true
+      setup:
+        description: >-
+          A shell script that runs before anything else, in the repository's root. Only the
+          harness itself uses this, to create the project it tests.
+        type: string
+        default: ""
+      project-directory:
+        description: The folder the project is in. Only the harness itself changes this.
+        type: string
+        default: .
+
+jobs:
+  # Builds and proves the image. It runs for pull requests too, so it may only read: no
+  # step here can publish, and the checkout leaves no token behind.
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      publish: ${{ steps.decide.outputs.publish }}
+    env:
+      BACKEND_TEST_URL: http://127.0.0.1:8090
+      # Any origin will do for the tests; production gives the backend the app's own.
+      APP_ORIGIN: https://app.example
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      # pnpm at the version in package.json's packageManager field (G-0016).
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: ${{ inputs.node-version-file }}
+
+      - name: Set up
+        if: inputs.setup != ''
+        run: ${{ inputs.setup }}
+
+      - name: Install
+        working-directory: ${{ inputs.project-directory }}
+        run: pnpm install --frozen-lockfile
+
+      # A migration that fails stops the backend, and this step with it.
+      - name: Build the image and start it on an empty database
+        working-directory: ${{ inputs.project-directory }}
+        env:
+          IMAGE_SOURCE: ${{ github.server_url }}/${{ github.repository }}
+        run: bash backend/throwaway.sh
+
+      - name: Smoke test
+        working-directory: ${{ inputs.project-directory }}
+        run: bash backend/smoke-test.sh
+
+      - name: Backend tests
+        if: inputs.tests != ''
+        working-directory: ${{ inputs.project-directory }}
+        run: ${{ inputs.tests }}
+
+      - name: The backend's log
+        if: always()
+        run: docker logs backend-throwaway || true
+
+      # Only from the default branch, never from a pull request.
+      - name: Decide whether to publish
+        id: decide
+        if: >-
+          inputs.publish && github.event_name != 'pull_request' &&
+          github.ref_name == github.event.repository.default_branch
+        run: echo "publish=true" >> "$GITHUB_OUTPUT"
+
+      # The publish job is another machine: hand it the image that was just proven.
+      - name: Save the image
+        if: steps.decide.outputs.publish == 'true'
+        run: docker save backend-throwaway -o "$RUNNER_TEMP/backend-image.tar"
+
+      - name: Hand the image to the publish job
+        if: steps.decide.outputs.publish == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-image
+          path: ${{ runner.temp }}/backend-image.tar
+          retention-days: 1
+
+  # Publishes what `image` proved. The only job that may write packages, and it never runs
+  # for a pull request. It checks nothing out and runs no code of the project.
+  publish:
+    needs: image
+    if: needs.image.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: backend-image
+          path: ${{ runner.temp }}
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          docker load -i "$RUNNER_TEMP/backend-image.tar"
+          image="ghcr.io/${GITHUB_REPOSITORY,,}-backend"
+          sha="sha-${GITHUB_SHA::7}"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker tag backend-throwaway "$image:$sha"
+          docker tag backend-throwaway "$image:stable"
+          docker push "$image:$sha"
+          docker push "$image:stable"
+          echo "Published \`$image:$sha\` and \`$image:stable\`." >> "$GITHUB_STEP_SUMMARY"

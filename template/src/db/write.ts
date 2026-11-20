@@ -1,4 +1,4 @@
-import { db as defaultDb, ITEM_STATUSES, type AppDb, type Item, type ItemStatus, type OutboxOp, type SyncedTable } from './db'
+import { db as defaultDb, ITEM_STATUSES, NOTE_MAX, TITLE_MAX, type AppDb, type Item, type ItemStatus, type OutboxOp, type SyncedTable } from './db'
 import { renamedSlugs, slugify, slugsOf, uniqueSlug } from './slug'
 
 // The one write API every screen uses (D-0002). Each call validates its input, stamps
@@ -24,11 +24,13 @@ const newId = () => crypto.randomUUID()
 
 function checkTitle(title: unknown): string {
   if (typeof title !== 'string' || title.trim() === '') fail('An item needs a title.')
+  if (title.trim().length > TITLE_MAX) fail(`A title has ${TITLE_MAX} characters at most.`)
   return title.trim()
 }
 
 function checkNote(note: unknown): string {
   if (typeof note !== 'string') fail('The note must be text.')
+  if (note.length > NOTE_MAX) fail(`A note has ${NOTE_MAX} characters at most.`)
   return note
 }
 

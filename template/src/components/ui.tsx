@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react'
+import type { ComponentProps, ReactNode } from 'react'
 import type { ItemStatus } from '../db/db'
 import { t } from '../text'
 
@@ -8,7 +8,8 @@ import { t } from '../text'
 export function AccentHeading({ children, level = 1 }: { children: ReactNode; level?: 1 | 2 }) {
   const Tag = level === 1 ? 'h1' : 'h2'
   return (
-    <Tag className={`m-0 inline-block max-w-full font-semibold ${level === 1 ? 'text-2xl' : 'text-lg'}`}>
+    // A page's heading can take the focus when the screen changes; it is not in the tab order.
+    <Tag tabIndex={level === 1 ? -1 : undefined} className={`m-0 inline-block max-w-full font-semibold ${level === 1 ? 'text-2xl' : 'text-lg'}`}>
       {children}
       <span aria-hidden="true" className="mt-1 block h-1 w-full rounded-full bg-accent" />
     </Tag>
@@ -30,7 +31,7 @@ export function Button({
   variant = 'primary',
   className = '',
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: keyof typeof BUTTON_LOOKS }) {
+}: ComponentProps<'button'> & { variant?: keyof typeof BUTTON_LOOKS }) {
   return <button type="button" className={`${buttonClass(variant)} ${className}`} {...props} />
 }
 
@@ -60,6 +61,17 @@ export function Field({ label, htmlFor, hint, children }: { label: string; htmlF
 
 export function Card({ children }: { children: ReactNode }) {
   return <div className="rounded-card border border-line bg-surface px-4 py-3">{children}</div>
+}
+
+export const bandClass = 'm-0 bg-surface px-4 py-1.5 text-sm'
+
+/** The strip under the header that says what this build runs on. */
+export function Band({ children }: { children: ReactNode }) {
+  return (
+    <p className={bandClass} role="status">
+      {children}
+    </p>
+  )
 }
 
 export const linkClass = 'text-text underline decoration-accent decoration-2 underline-offset-4'
