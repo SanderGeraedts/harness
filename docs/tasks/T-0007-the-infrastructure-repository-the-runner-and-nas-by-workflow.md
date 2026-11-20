@@ -2,12 +2,12 @@
 id: T-0007
 title: "Generate the private infrastructure repository, install the runner on the NAS, and run harness nas through a workflow"
 description: "harness infra init generates the thin private infrastructure repository, harness infra runner installs a self-hosted runner as an app on the NAS, and harness nas --remote calls the TrueNAS API through a workflow there, with the key from the GitHub environment; released as 0.4.0 with the rules for G-0026 to G-0029."
-status: Open                # Open | Doing | Done | Dropped
+status: Doing               # Open | Doing | Done | Dropped
 depends_on: [T-0003]        # tasks that must be Done first
 decisions: [G-0007, G-0009, G-0011, G-0015, G-0026, G-0027, G-0028, G-0029]
 raised_on: 2026-11-20
 done_on: ""
-result: []                  # PR URLs
+result: ["https://github.com/SanderGeraedts/harness/pull/15"]  # PR URLs
 ---
 
 # Goal
@@ -133,6 +133,12 @@ without a key on that machine:
 
 Nothing visible in an app. The commands print one `✓` line per step, as `create` does.
 
+As built: `✓` for a step done or already there, `! Remaining:` for what only the Engineer can
+add (a secret, the environment, the runner's install), `·` for a secret that isn't needed
+yet (`GHCR_PULL_TOKEN`), and `✗` with the reason when a command stops. `harness infra
+runner status` prints one line, `harness-nas: online` (or `offline`, or `not installed`).
+`harness nas --remote` prints only what the run recorded, as `harness nas` would locally.
+
 # Test
 
 Not yet tested.
@@ -145,3 +151,40 @@ One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
   way a workflow reaches the NAS's API, and that the NAS's address, fingerprint and parent
   dataset live in the runner's configuration. Handed to the developer; nothing waits on a
   question.
+- 2026-11-20 developer: built it in #15. `lib/nas-client.mjs` (connect, fingerprint, sign
+  in, `call`, `job`) with `lib/nas.mjs` as the command on top; `harness nas --remote`;
+  `harness infra init | check | runner install | runner status` (`lib/infra.mjs`,
+  `lib/infra/`); reusable `infra-nas.yml` and `infra-check.yml`; the rules, README, agents
+  and messages for G-0026 to G-0029; 0.4.0. `pnpm test`: 159 pass, 0 fail. `pnpm run
+  self-test`: "✓ self-test passed: 23 steps, harness 0.4.0 in a throwaway project" (steps
+  10 and 13 to 17 cover Done-when 1). `pnpm run check`: tasks, global decisions and agents
+  ✓.
+- 2026-11-20 developer: live, with the Engineer's authorisation, from a machine on the home
+  network. The runner: `harness infra runner install` ended "✓ the runner harness-nas:
+  online after a restart without the token"; run again: "already there, nothing changed".
+  After `app.stop` the status was `offline`, after `app.start` `harness-nas: online
+  (self-hosted, Linux, X64, harness-nas)`, with no new token. `harness nas --remote
+  app.config` on the runner app: no `RUNNER_TOKEN` in its environment, one volume, no
+  socket. The repository: `harness infra init` (pinned to this branch's commit, because
+  v0.4.0 isn't tagged yet) merged its files through the repository's own pull request,
+  with ✓ for the environment and the four secrets and "· GHCR_PULL_TOKEN isn't there yet";
+  run again: "✓ files: nothing changed". With no `TRUENAS_*` variable set: `harness nas
+  --remote core.ping` printed `"pong"` (so a reusable workflow's job does get the caller's
+  environment secrets: the generator keeps calling reusable workflows); `harness nas
+  --remote pool.dataset.delete '["x"]'` exited 2 with the "is destructive" message; `harness
+  infra check` exited 0 with the four secrets ✓, the runner's configuration ✓ and "core.ping
+  gave "pong"". A search of this pull request's diff and of the repository's files for the
+  NAS's host, pool, dataset, fingerprint, IPv4 addresses, `/mnt/` and `.ts.net` found none.
+- 2026-11-20 developer: for the architect, beyond the task. (1) `project-up.yml` and
+  `project-down.yml` call `infra-project-up.yml` / `infra-project-down.yml`, which are stubs
+  that fail with "arrives with harness 0.6.0" so the callers are valid now; T-0004 replaces
+  them and their inputs. (2) Added `harness infra check` (what `init` offers to start),
+  `--harness-ref` on `init`, and the internal `harness infra job nas | check` the workflows
+  run. (3) The user-level settings file is `harness/infra.json` under `HARNESS_CONFIG_DIR`,
+  `XDG_CONFIG_HOME`, `APPDATA` or `~/.config`. (4) The template's T-0002 and D-0001 still
+  name G-0022 and G-0024; left alone because T-0008 (#13) rewrites those files. (5) The
+  runner's job installs Node and pnpm from the internet on each run; a cache could come later.
+- 2026-11-20 developer: Remaining: after `v0.4.0` is tagged, run `harness infra init` once
+  more so the infrastructure repository is pinned to the tag instead of this branch's
+  commit (Done-when 2 then shows "nothing changed" on a second run); Done-when 4 from a
+  machine off the home network; the tag itself (Done-when 6).
