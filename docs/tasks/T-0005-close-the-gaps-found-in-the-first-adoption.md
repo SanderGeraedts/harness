@@ -7,7 +7,7 @@ depends_on: [T-0002]        # tasks that must be Done first
 decisions: [G-0001, G-0002, G-0004, G-0012, G-0015]
 raised_on: 2026-11-20
 done_on: ""
-result: []                  # PR URLs
+result: ["https://github.com/SanderGeraedts/harness/pull/4"]                  # PR URLs
 ---
 
 # Goal
