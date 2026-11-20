@@ -308,6 +308,12 @@ function fakeNetlify({ sites = [], env = {} } = {}) {
       if (method === 'PUT') return (state.env[key] = body);
     }
     if (path === '/accounts/acc/env' && method === 'POST') {
+      // As on Netlify's free plan, found live: no scopes, and the variable has them all.
+      if (body.some((v) => v.scopes) || state.refuseEnv) {
+        const e = new Error('Netlify answered 403 to POST /accounts/<account>/env: Upgrade your Netlify account to set specific scopes');
+        e.status = 403;
+        throw e;
+      }
       for (const v of body) state.env[`${query.site_id}:${v.key}`] = v;
       return body;
     }
@@ -378,8 +384,29 @@ describe('spin-up: the site', () => {
     const n = fakeNetlify({ sites: [{ id: 's', account_id: 'acc' }] });
     const site = n.state.sites[0];
     assert.equal(await setSiteVariable(n.api, site, 'BACKEND_URL', 'https://b.example', 'production'), true);
-    assert.deepEqual(n.state.env['s:BACKEND_URL'], { key: 'BACKEND_URL', scopes: ['builds'], values: [{ context: 'production', value: 'https://b.example' }] });
+    assert.deepEqual(n.state.env['s:BACKEND_URL'], { key: 'BACKEND_URL', values: [{ context: 'production', value: 'https://b.example' }] });
     assert.equal(await setSiteVariable(n.api, site, 'BACKEND_URL', 'https://b.example', 'production'), false);
+  });
+
+  it('a site it made and could not mark is deleted again, so no unmarked site is left behind', async () => {
+    const n = fakeNetlify({ sites: [linkedElsewhere] });
+    n.state.refuseEnv = true;
+    await assert.rejects(ensureSite(n.api, { project: 'my-project', repository: 'engineer-one/my-project' }), /403/);
+    assert.deepEqual(n.state.sites.map((s) => s.id), ['old']);
+  });
+
+  it("takes an empty, unlinked site of the project's name that an earlier run left unmarked, and no other", async () => {
+    const left = { id: 'left', name: 'my-project', ssl_url: 'https://my-project.netlify.app', account_id: 'acc', build_settings: {}, published_deploy: null };
+    const n = fakeNetlify({ sites: [linkedElsewhere, left] });
+    const lines = [];
+    const r = await ensureSite(n.api, { project: 'my-project', repository: 'engineer-one/my-project', log: (l) => lines.push(l) });
+    assert.equal(r.site.id, 'left');
+    assert.equal(n.state.sites.length, 2);
+    assert.equal(lines[0], '✓ the site: already there (empty, now marked), https://my-project.netlify.app');
+    // One that was ever deployed is someone's: a new site is made instead.
+    const used = fakeNetlify({ sites: [linkedElsewhere, { ...left, published_deploy: { id: 'd' } }] });
+    const r2 = await ensureSite(used.api, { project: 'my-project', repository: 'engineer-one/my-project' });
+    assert.notEqual(r2.site.id, 'left');
   });
 });
 
