@@ -1,0 +1,35 @@
+# Reusable: teardown of a project's hosting and backend (G-0028). Built in T-0004 (0.6.0);
+# until then it only says so, so that the `project-down.yml` that `harness infra init`
+# generates is a valid caller from the start. It runs on GitHub's runner and touches nothing.
+name: Infrastructure project down (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        default: Prod
+      harness-ref:
+        type: string
+        required: true
+      project:
+        type: string
+        required: true
+      confirmation:
+        type: string
+        required: true
+      request-id:
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  down:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - run: |
+          echo "::error::Teardown arrives with harness 0.6.0 (T-0004). Nothing was done."
+          exit 1

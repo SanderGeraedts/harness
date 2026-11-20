@@ -1,0 +1,62 @@
+# Reusable: proves the whole chain of the private infrastructure repository with a harmless
+# call (G-0026, G-0027). Called by the `check.yml` that `harness infra init` generates;
+# started by `harness infra check`.
+#
+# On the self-hosted runner on the NAS, it reports which of the environment's secrets exist,
+# by name only (a secret's value never reaches a log), whether the runner's configuration has
+# the NAS's settings, and whether the NAS answers core.ping with the key from the environment.
+name: Infrastructure check (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: The GitHub environment that holds the secrets.
+        type: string
+        default: Prod
+      harness-ref:
+        description: The harness tag the caller is pinned to; the job runs the harness at it.
+        type: string
+        required: true
+      request-id:
+        description: Names the run, so the command that started it finds it again.
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: [self-hosted, harness-nas]
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 15
+    concurrency:
+      group: harness-nas
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: SanderGeraedts/harness
+          ref: ${{ inputs.harness-ref }}
+          path: harness
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: harness/package.json
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: harness/.nvmrc
+      - name: Install the harness's dependencies
+        working-directory: harness
+        run: pnpm install --frozen-lockfile --prod
+      - name: harness infra job check
+        env:
+          TRUENAS_API_KEY: ${{ secrets.TRUENAS_API_KEY }}
+          # Whether each secret exists: true or false, never its value.
+          HAS_NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN != '' }}
+          HAS_TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID != '' }}
+          HAS_TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET != '' }}
+          HAS_TRUENAS_API_KEY: ${{ secrets.TRUENAS_API_KEY != '' }}
+          HAS_GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN != '' }}
+        run: node harness/bin/harness.mjs infra job check
