@@ -2,7 +2,7 @@
 id: T-0003
 title: "Spin up a repository and app from one prompt"
 description: "A command the Engineer runs that creates a new repository with the app from the default stack, the harness installed and initialised, CI and auto-merge wired, and the default branch protected."
-status: Open                # Open | Doing | Done | Dropped
+status: Doing               # Open | Doing | Done | Dropped
 depends_on: [T-0002]        # tasks that must be Done first
 decisions: [G-0004, G-0007, G-0016, G-0017, G-0019, G-0020, G-0021, G-0024, G-0025]
 raised_on: 2026-11-20
@@ -44,7 +44,32 @@ Hosting and the backend are T-0004.
 
 # Design
 
-To be written by the UX designer for the template's first screens.
+The template's first screens, a neutral example every project replaces: a list of items
+with a title, a note and a status. Phone first, one column, at most 42rem wide.
+
+- **Every screen:** the project's title top left with the accent bar under it, linking
+  home. Under it, outside production, a quiet band: "Demo data · sync is off".
+- **List (`/`):** the heading "Items" and the main button "New item". One card per item,
+  newest change first: the title, a status badge (open, doing, done) and the first line of
+  the note. The whole card is the link. Empty: "Nothing here yet. Add the first item."
+- **Item (`/items/<slug>`):** a back link, the title as the heading with its badge, the
+  note with its line breaks, then "Edit" (main button) and "Delete". Delete asks in place,
+  "Delete this item?" with "Yes, delete" and "Cancel"; no pop-up. An address that leads
+  nowhere shows "Not found" with a link home; an address from before a rename moves to the
+  new one.
+- **Form (`/items/new`, `/items/<slug>/edit`):** Title, Note (optional, four lines) and
+  Status, with "Save" and "Cancel". Saving without a title says "Give the item a title."
+  and stays. After saving, the item's page.
+- **Look:** one accent colour, used for the heading bars, the main button, link underlines
+  and the focus ring; the text on it is black or white, whichever contrasts more. Neutral
+  greys for the rest, status badges in blue, amber and green. Light or dark follows the
+  device; there is no switch. One font stack with no font files.
+- **`/design`:** every colour token, the type sizes and each component (buttons, badges,
+  card, field), in the device's colour scheme. Not in production builds.
+- **Words:** all in one file, in English; another language is the new project's own task.
+
+Review after building: checked on a phone-sized screen in light and dark. The four screens
+match the above; contrast of the default accent with its text is 4.6:1.
 
 # Test
 
@@ -53,3 +78,30 @@ Not yet tested.
 # Log
 
 One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
+
+- 2026-11-20 engineer: decided that the template lives in this repository, under
+  `template/`, so it is versioned and tested with the harness.
+- 2026-11-20 engineer: decided the command is `harness create <name>`. It asks, or takes as
+  flags, what the project is for, its look (accent colour and font) and its language,
+  records the answers as the project's first decisions and writes a first task list.
+- 2026-11-20 engineer: decided that sync and the backend come in T-0004. This task's app is
+  local-first and ready to sync (Dexie with `updatedAt`, tombstones and an outbox, one write
+  API, slug addresses, seeded demo data, no backend), with a seam for T-0004: `src/sync/`
+  and a config module that reads the backend address only in production builds.
+- 2026-11-20 ux-designer: wrote the design of the template's first screens (above).
+- 2026-11-20 developer: built `template/` and `harness create` (`lib/create.mjs`), with unit
+  tests (`test/create.test.mjs`) and self-test steps: a refused create, `create --no-github`
+  from the installed package, then install, type-check, unit tests, build and
+  `harness check` in the created project. The template's end-to-end tests run in the
+  harness's CI in their own job (`node scripts/self-test.mjs --e2e`) and in every created
+  project's CI.
+- 2026-11-20 developer: the rule for who may create: inside a project, the signed-in account
+  must be in its `.harness/engineers`; elsewhere `--engineer` is required and must include
+  the signed-in account. Outside a project this is a statement, not a lock: what really
+  limits it is the account's rights on GitHub.
+- 2026-11-20 developer: `create` makes the first push to the new repository's `main` without
+  the project's pre-push hook: the first commit of an empty repository, before a ruleset can
+  exist (G-0025). Said plainly in the pull request for the tester and the Engineer to weigh.
+- 2026-11-20 developer: `--harness-ref` sets what is installed and what the workflows are
+  pinned to; it defaults to the tag of the running harness. Until this is released, a
+  project is created with the branch's commit as the ref.

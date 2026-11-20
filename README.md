@@ -16,6 +16,7 @@ itself. Humans decide what can't be undone or costs money.
 | [agents/](agents/) | the team: architect, UX designer, developer, tester (Claude Code subagents) |
 | [templates/](templates/) | decision, question, task and lessons templates, and a project's thin `AGENTS.md` and `CLAUDE.md` |
 | `bin/`, `lib/` | the `harness` command |
+| [template/](template/) | the app a new project starts from, for `harness create` |
 | [.github/workflows/](.github/workflows/) | reusable `ci.yml` and `auto-merge.yml` |
 
 ## Roles
@@ -131,6 +132,67 @@ gh api repos/{owner}/{repo}/rules/branches/main
 The auto-merge workflow still merges under the ruleset: it merges through the API, and only
 when the checks passed.
 
+## Create a new project
+
+`harness create` spins up a new project (G-0024): the app from [template/](template/), the
+harness installed and initialised, CI and auto-merge wired, the first decisions and tasks
+recorded, and a GitHub repository with a protected default branch.
+
+```sh
+pnpm exec harness create my-project \
+  --purpose "What the project is for, in a sentence." \
+  --accent "#2f6fed" --font system --language en
+```
+
+In a terminal it asks for the purpose, the look and the language that weren't given as
+flags; elsewhere the flags are all there is, and only `--purpose` is required.
+
+| Option | What |
+| --- | --- |
+| `--dir <path>` | where to create it; default `./<name>` |
+| `--title <text>` | the name people see; default made from the name (`my-project` gives "My project") |
+| `--purpose <text>` | what the project is for; recorded as its first decision |
+| `--accent <#rrggbb>` | the accent colour; default `#2f6fed`. The text colour on it is worked out for contrast |
+| `--font <name>` | `system`, `serif`, `rounded` or `mono`: font stacks that need no font files; default `system` |
+| `--language <code>` | the interface language, such as `en` or `nl`; default `en` |
+| `--engineer <login>` | a GitHub login of an Engineer of the new project; repeat for more |
+| `--private`, `--public` | the repository's visibility; default private |
+| `--no-github` | stop after the first local commit |
+| `--harness-ref <ref>` | the harness tag, branch or commit to install and to pin the workflows to; default the tag of the harness that runs the command |
+| `--harness-package <spec>` | install the harness from this package spec instead; for tests |
+
+**Only the Engineer creates a project.** `.harness/engineers` belongs to a project, so the
+rule is:
+
+- run from inside a project that has the harness, the signed-in GitHub account (`gh`) must
+  be in that project's `.harness/engineers`, and the new project gets the same Engineers,
+  plus any `--engineer`;
+- run anywhere else, `--engineer` is required and the signed-in account must be one of the
+  logins given.
+
+What it does, in order:
+
+1. Copies the template and fills in the name, title, purpose, look and language.
+2. Installs the dependencies and the harness, then runs `harness init` with the Engineers
+   and `harness sync`.
+3. Records the first decisions (`D-0001` purpose, `D-0002` local-first and ready to sync,
+   `D-0003` look, `D-0004` language, `D-0005` slug addresses) and the first tasks, and runs
+   `harness check`.
+4. Makes the first commit on `main`. With `--no-github` it stops here.
+5. Creates the repository under the signed-in account and pushes. This is the one push to
+   the default branch a project ever gets: the first commit of an empty repository, before
+   a ruleset can exist (G-0025). The project's own pre-push hook is not used for it.
+6. Waits for the first CI run and, when it is green, runs `harness protect "checks / checks"`.
+
+The app it creates is local-first and ready to sync: Dexie with `updatedAt`, tombstones and
+an outbox, one write API, slug addresses, seeded demo data outside production, and no
+backend. Hosting, the backend and sync are not created yet.
+
+The template is tested with the harness: `pnpm run self-test` creates a project from it and
+runs its type-check, unit tests and build; CI also runs its end-to-end tests
+(`node scripts/self-test.mjs --e2e`). After changing `template/package.json`, run
+`node scripts/template-lock.mjs` to refresh the lockfile new projects start from.
+
 ## Update
 
 ```sh
@@ -164,6 +226,7 @@ Run from the project root with `pnpm exec harness <command>`.
 | `hooks` | points git at `.githooks`; the project's `prepare` script |
 | `protect <check>... [--repo owner/name] [--dry-run]` | creates or updates the ruleset on the default branch through `gh api`: a pull request with 0 approvals, the named checks required (as reported by GitHub Actions), no deletion, no force-push, no bypass actors. Found again by its name, so it is safe to repeat |
 | `nas <method> [params-json] [--job] [--confirmed]` | calls the TrueNAS API; see below |
+| `create <name> [options]` | spins up a new project from the template, for the Engineer only; see *Create a new project* |
 
 ## The NAS tool
 

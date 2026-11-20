@@ -1,0 +1,54 @@
+/* D-0003: the design system. Every colour, radius and font is a token here; components use
+   Tailwind utilities built from these tokens only. Dark values follow the device's
+   prefers-color-scheme. See them all at /design. */
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: __FONT_STACK__;
+
+  --color-text: #1c1c1e;
+  --color-bg: #fdfdfd;
+  --color-muted: #63636b;
+  --color-line: #d9d9de;
+  --color-surface: #f1f1f4;
+  --color-accent: __ACCENT__;
+  --color-on-accent: __ON_ACCENT__;
+
+  --color-status-open-bg: #e3e8f4;
+  --color-status-open-text: #2a3f73;
+  --color-status-doing-bg: #f4ecd2;
+  --color-status-doing-text: #5c4708;
+  --color-status-done-bg: #dcefdb;
+  --color-status-done-text: #23561f;
+
+  --radius-card: 14px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-text: #e6e6ea;
+    --color-bg: #1c1c1e;
+    --color-muted: #a0a0a8;
+    --color-line: #45454b;
+    --color-surface: #2a2a2e;
+
+    --color-status-open-bg: #26335a;
+    --color-status-open-text: #cdd8f6;
+    --color-status-doing-bg: #4a3b0c;
+    --color-status-doing-text: #f1e2ad;
+    --color-status-done-bg: #21441e;
+    --color-status-done-text: #c8ebc4;
+  }
+}
+
+@layer base {
+  :root {
+    color-scheme: light dark;
+  }
+  body {
+    @apply bg-bg font-sans leading-normal text-text;
+  }
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-accent;
+  }
+}

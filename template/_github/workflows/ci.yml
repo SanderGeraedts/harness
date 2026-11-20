@@ -1,0 +1,30 @@
+# Every pull request runs the checks; the auto-merge workflow acts on the result (G-0011).
+# Keep the ref the same as the harness dependency in package.json (G-0004).
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The harness's reusable CI: pnpm install, harness check, then the checks below. GitHub
+  # reports this job as "checks / checks", the name the ruleset on main requires (G-0025).
+  checks:
+    uses: SanderGeraedts/harness/.github/workflows/ci.yml@__HARNESS_REF__
+    with:
+      # No CONTEXT here, so this is a "local" build: seeded data, no backend address (G-0019).
+      checks: |
+        pnpm run typecheck
+        pnpm test
+        pnpm run build
+      e2e: pnpm run test:e2e
+      artifacts: playwright-report/
