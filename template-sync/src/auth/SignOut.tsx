@@ -48,7 +48,7 @@ export function SignOut({
   if (unsynced !== null) {
     return (
       <div role="alert">
-        <p className="mt-0 font-semibold">{t.signOutUnsynced(unsynced)}</p>
+        <p className="mb-4 font-semibold">{t.signOutUnsynced(unsynced)}</p>
         <div className="flex flex-wrap gap-3">
           <Button variant="danger" disabled={busy} onClick={() => void signOut(true)}>
             {t.signOutAnyway}
@@ -63,7 +63,7 @@ export function SignOut({
 
   return (
     <div>
-      <p className="mt-0 text-muted">{hint}</p>
+      <p className="mb-4 text-muted">{hint}</p>
       <Button ref={signOutRef} variant={variant} disabled={busy} onClick={() => void signOut(false)}>
         {busy ? t.signingOut : t.signOut}
       </Button>

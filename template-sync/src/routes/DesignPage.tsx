@@ -136,7 +136,7 @@ export function DesignPage() {
         <AccentHeading level={2}>{t.designSignOut}</AccentHeading>
         <div className="mt-4 grid gap-8">
           <div>
-            <p>{t.signedInAs(LONG_EMAIL)}</p>
+            <p className="mb-4">{t.signedInAs(LONG_EMAIL)}</p>
             <SignOut onSignOut={keep} hint={t.signOutHint} variant="danger" />
           </div>
           <SignOut onSignOut={keep} hint={t.otherAccount} variant="secondary" />

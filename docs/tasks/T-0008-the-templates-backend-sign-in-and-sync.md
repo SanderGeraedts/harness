@@ -422,3 +422,61 @@ One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
   record with the project's decisions: only the user's own sign-out clears the device, and
   after a sign-in ended only the same account signs in again without signing out first.
   Handed to the developer.
+- 2026-11-20 developer: built it, in the draft pull request. `create --sync | --no-sync`
+  (asked in a terminal, default yes) copies `template-sync/` over `template/`: files it adds
+  or replaces, and a manifest of the template's files it removes; nothing is patched. The
+  overlay holds `backend/` (the image, one migration, the newest-wins and slug hooks,
+  `funnel.json`, `throwaway.sh`, `smoke-test.sh`), the `backend` workflow and the auto-merge
+  caller, `src/auth/`, `src/sync/`, the sync status, the sign-in and account screens, the
+  decisions D-0002 and D-0005 to D-0010 and the first tasks. New in the harness: the reusable
+  `backend.yml`, and a `template-backend` job in its CI that runs it on the created project
+  without publishing. For both templates the security headers moved from `netlify.toml` to
+  `dist/_headers`, written at build time. Recorded the designer's two points as the
+  project's D-0009 and D-0010. Version to 0.5.0, the tag is the tester's.
+  Checks, locally: `pnpm test`: `tests 124, pass 124, fail 0`. `pnpm run check`: `✓ tasks: 9
+  tasks, index in step`, `✓ global decisions: 25 records, index complete`, `✓ agents: 4
+  definitions`. `pnpm run self-test`: `✓ self-test passed: 23 steps, harness 0.5.0 in a
+  throwaway project`. `node scripts/self-test.mjs --e2e`, with a throwaway PocketBase 0.40.6
+  started from the binary with the template's migrations and hooks: `✓ self-test passed: 25
+  steps`; in the project that syncs `27 passed` (14 on demo data, 13 against the backend).
+  `bash backend/smoke-test.sh` against that backend: eight `ok:` lines and `All smoke tests
+  passed.`; `pnpm run test:backend`: `Tests 5 passed (5)`. Against a backend without the two
+  hooks both fail, as they should.
+  In CI, on the pull request: `checks / checks`, `template-e2e` (25 steps, the backend built
+  and started with Docker) and `template-backend / image` (the image built, the smoke test's
+  `All smoke tests passed.`, `Tests 5 passed (5)`) are green.
+- 2026-11-20 developer: where it differs from the *Design* or the *Notes*, for the designer
+  and the architect. (1) `src/text.ts` has four keys the design doesn't list: `joiner`, for
+  the " · " between two parts of a line, and three headings on `/design`. (2) Escape also
+  closes the sync details from the line itself: offline, the details hold nothing that can
+  take the focus. (3) `Band`, a heading that can take the focus and a `Button` that takes a
+  ref are in the `ui.tsx` both templates share, so a project without sync shows the `Band`
+  on `/design` too; its screens look as they did. (4) What sync remembers on a device (the
+  account, the token, how far the last pull got) is in localStorage, not in a Dexie table,
+  so `src/db/` is the same in both templates. (5) The template's records don't cite G-0026:
+  it is not in the registry on `main` yet, and a project would name a decision it can't
+  read; `backend/README.md` says in words where addresses and keys live. (6) Without sync
+  the template's task to add a backend is gone and the translate task is T-0002.
+  Chosen by the developer where the task was silent, to confirm or change: a sign-in lasts
+  30 days and syncing renews it; an account can't change or remove itself; nothing is
+  removed through the backend's API; the smoke test takes its superuser from
+  `throwaway.sh`, so it needs no Docker of its own; a project's end-to-end tests start the
+  throwaway backend themselves (always in CI, left out on a machine without Docker), so its
+  `checks / checks` proves the sign-in and sync on every pull request; its `backend`
+  workflow also runs for pull requests that touch `src/sync/`, `src/auth/` or `src/db/`.
+- 2026-11-20 developer: found on the way, not fixed here, for the architect. A project's
+  auto-merge acts on `CI` only: a pull request whose `Backend` run failed can still merge,
+  though CI's end-to-end tests do build and use the image. A change the backend refuses for
+  good stays at the head of the outbox and holds up the ones behind it. Behind the Funnel
+  every device may reach the backend from one address, so PocketBase's sign-in limit (two
+  per three seconds) would be shared by all of them; whether to trust the proxy's header is
+  a question for slice 3. 0.5.0 skips 0.4.0, which T-0007 carries: whichever merges second
+  settles `package.json` and the README.
+- 2026-11-20 developer: Remaining: what could not be proven here. No machine here has
+  Docker: `throwaway.sh`, the image build and the reusable `backend.yml` ran in CI only.
+  The `Publish` step never ran (it runs on a project's default branch only), and neither did
+  the auto-merge caller starting `backend.yml` after a merge, nor a created project's own
+  first CI run on GitHub. That the host sends `dist/_headers` as written, now that the
+  policy is no longer in `netlify.toml`, needs a real site. All of these come with the live
+  proof of T-0004. Light and dark at 320px, and the words, are the designer's to judge
+  (*Done when* 6). Handed to the UX designer for the review, then the tester.

@@ -13,8 +13,10 @@ export function SignInScreen() {
   if (!app) return null
   return (
     <section>
-      <AccentHeading>{t.signIn}</AccentHeading>
-      <p className="text-muted">{t.signInIntro}</p>
+      <div className="mb-5">
+        <AccentHeading>{t.signIn}</AccentHeading>
+        <p className="mt-3 text-muted">{t.signInIntro}</p>
+      </div>
       {/* The form stays usable: a device can be wrong about being offline. */}
       {!online && (
         <div className="mb-5" role="status">

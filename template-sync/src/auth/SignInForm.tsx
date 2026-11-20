@@ -84,14 +84,14 @@ export function SignInForm({
         />
       </Field>
       {error && (
-        <p id={`${id}-error`} role="alert" className="font-semibold">
+        <p id={`${id}-error`} role="alert" className="mb-4 font-semibold">
           {error}
         </p>
       )}
       <Button type="submit" disabled={busy}>
         {busy ? t.signingIn : t.signIn}
       </Button>
-      {lockedEmail === undefined && <p className="mb-0 text-muted">{t.signInNoAccount}</p>}
+      {lockedEmail === undefined && <p className="mt-4 text-muted">{t.signInNoAccount}</p>}
     </form>
   )
 }

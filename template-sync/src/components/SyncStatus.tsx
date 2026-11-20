@@ -87,9 +87,9 @@ export function SyncStatusView({
               </Detail>
             )}
           </dl>
-          {view.offline && <p className="mt-0 mb-2">{t.syncOfflineDetail}</p>}
-          {view.storageRefused && <p className="mt-0 mb-2">{t.syncStorageDetail}</p>}
-          <Button className="mt-1" disabled={view.running || view.offline} onClick={onSyncNow}>
+          {view.offline && <p className="mb-2">{t.syncOfflineDetail}</p>}
+          {view.storageRefused && <p className="mb-2">{t.syncStorageDetail}</p>}
+          <Button className="mt-2" disabled={view.running || view.offline} onClick={onSyncNow}>
             {view.running ? t.syncing : t.syncNow}
           </Button>
         </div>

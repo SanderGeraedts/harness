@@ -41,7 +41,7 @@ export function AccountPage() {
         </>
       ) : (
         <>
-          <p>{t.signedInAs(account.email)}</p>
+          <p className="mb-4">{t.signedInAs(account.email)}</p>
           <SignOut onSignOut={signOut} hint={t.signOutHint} variant="danger" />
         </>
       )}
