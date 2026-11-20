@@ -21,9 +21,14 @@
 #     workflow_dispatch:
 #   permissions:
 #     contents: read
-#     packages: write        # to publish the image
 #   jobs:
 #     image:
+#       # The most this workflow's jobs may ask for. Only its `publish` job takes
+#       # packages: write, and that job never runs for a pull request; the job that builds
+#       # and tests, which does, only reads.
+#       permissions:
+#         contents: read
+#         packages: write
 #       uses: SanderGeraedts/harness/.github/workflows/backend.yml@vX.Y.Z
 name: Backend (reusable)
 
@@ -56,15 +61,23 @@ on:
         default: .
 
 jobs:
+  # Builds and proves the image. It runs for pull requests too, so it may only read: no
+  # step here can publish, and the checkout leaves no token behind.
   image:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      publish: ${{ steps.decide.outputs.publish }}
     env:
       BACKEND_TEST_URL: http://127.0.0.1:8090
       # Any origin will do for the tests; production gives the backend the app's own.
       APP_ORIGIN: https://app.example
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       # pnpm at the version in package.json's packageManager field (G-0016).
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v5
@@ -99,15 +112,48 @@ jobs:
         if: always()
         run: docker logs backend-throwaway || true
 
-      # Only from the default branch, never from a pull request: what is published is what
-      # was just proven.
-      - name: Publish
+      # Only from the default branch, never from a pull request.
+      - name: Decide whether to publish
+        id: decide
         if: >-
           inputs.publish && github.event_name != 'pull_request' &&
           github.ref_name == github.event.repository.default_branch
+        run: echo "publish=true" >> "$GITHUB_OUTPUT"
+
+      # The publish job is another machine: hand it the image that was just proven.
+      - name: Save the image
+        if: steps.decide.outputs.publish == 'true'
+        run: docker save backend-throwaway -o "$RUNNER_TEMP/backend-image.tar"
+
+      - name: Hand the image to the publish job
+        if: steps.decide.outputs.publish == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-image
+          path: ${{ runner.temp }}/backend-image.tar
+          retention-days: 1
+
+  # Publishes what `image` proved. The only job that may write packages, and it never runs
+  # for a pull request. It checks nothing out and runs no code of the project.
+  publish:
+    needs: image
+    if: needs.image.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: backend-image
+          path: ${{ runner.temp }}
+
+      - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          docker load -i "$RUNNER_TEMP/backend-image.tar"
           image="ghcr.io/${GITHUB_REPOSITORY,,}-backend"
           sha="sha-${GITHUB_SHA::7}"
           echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin

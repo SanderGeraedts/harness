@@ -170,12 +170,18 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   image:
+    permissions:
+      contents: read
+      packages: write
     uses: SanderGeraedts/harness/.github/workflows/backend.yml@v0.5.0
 ```
+
+Publishing is a job of its own: the only one that takes `packages: write`, and it runs on
+the default branch alone, after the job that builds and tests. That job, which also runs for
+pull requests, only reads, and its checkout keeps no token.
 
 It builds the image from the project's `backend/` folder, starts it on an empty database
 (`backend/throwaway.sh`), runs `backend/smoke-test.sh` and the project's backend tests

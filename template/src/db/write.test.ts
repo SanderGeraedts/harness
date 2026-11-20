@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { openDb, type AppDb } from './db'
+import { NOTE_MAX, openDb, TITLE_MAX, type AppDb } from './db'
 import { countUnsynced, createItem, deleteItem, updateItem, ValidationError } from './write'
 
 let db: AppDb
@@ -22,6 +22,18 @@ describe('createItem', () => {
     expect(item.updatedAt).toBe(item.createdAt)
     expect(await db.items.get(item.id)).toEqual(item)
     expect(await outbox()).toMatchObject([{ table: 'items', recordId: item.id, op: 'put', queuedAt: item.updatedAt }])
+  })
+
+  it('refuses a title or a note longer than the limits, and takes one exactly as long', async () => {
+    await expect(createItem({ title: 't'.repeat(TITLE_MAX + 1) }, db)).rejects.toThrow(ValidationError)
+    await expect(createItem({ title: 'Tea', note: 'n'.repeat(NOTE_MAX + 1) }, db)).rejects.toThrow(ValidationError)
+    expect(await db.items.count()).toBe(0)
+    expect(await outbox()).toEqual([])
+    const item = await createItem({ title: ` ${'t'.repeat(TITLE_MAX)} `, note: 'n'.repeat(NOTE_MAX) }, db)
+    expect(item.title).toHaveLength(TITLE_MAX)
+    await expect(updateItem(item.id, { title: 't'.repeat(TITLE_MAX + 1) }, db)).rejects.toThrow(ValidationError)
+    await expect(updateItem(item.id, { note: 'n'.repeat(NOTE_MAX + 1) }, db)).rejects.toThrow(ValidationError)
+    expect(await outbox()).toHaveLength(1)
   })
 
   it('gives two items with the same title different slugs', async () => {

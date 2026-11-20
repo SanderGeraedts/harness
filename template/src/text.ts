@@ -23,6 +23,8 @@ export const t = {
   deleteQuestion: 'Delete this item?',
   deleteConfirm: 'Yes, delete',
   titleMissing: 'Give the item a title.',
+  titleTooLong: (max: number) => `Keep the title to ${max} characters.`,
+  noteTooLong: (max: number) => `Keep the note to ${max} characters.`,
   saveFailed: 'That could not be saved. Try again.',
   notFound: 'Not found',
   design: 'Design',

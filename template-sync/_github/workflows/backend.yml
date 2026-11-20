@@ -25,7 +25,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 # One publish at a time, in the order of the pushes.
 concurrency:
@@ -34,4 +33,10 @@ concurrency:
 
 jobs:
   image:
+    # The most the reusable workflow's jobs may ask for. Only its `publish` job takes
+    # packages: write, and that job never runs for a pull request; the job that builds and
+    # tests, which does, only reads.
+    permissions:
+      contents: read
+      packages: write
     uses: SanderGeraedts/harness/.github/workflows/backend.yml@__HARNESS_REF__

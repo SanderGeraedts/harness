@@ -27,7 +27,8 @@ test('there is no sign-in, no "Account" link, and /account is "Not found"', asyn
 
 test('/design shows the sync status in each of its states, with the count in singular and plural', async ({ page }) => {
   await page.goto('/design')
-  const lines = await page.getByRole('region', { name: t.sync }).locator('button[aria-expanded] > span:first-child, a > span').allTextContents()
+  // /design loads after the page does: every check waits for what it looks at.
+  const words = page.getByRole('region', { name: t.sync }).locator('button[aria-expanded] > span:first-child, a > span')
   for (const line of [
     t.syncAllSynced,
     t.syncChanges(1),
@@ -40,7 +41,7 @@ test('/design shows the sync status in each of its states, with the count in sin
     t.syncSignInAgain,
     `${t.syncChanges(3)}${t.joiner}${t.syncSignInAgain}`,
   ])
-    expect(lines).toContain(line)
+    await expect(words.getByText(line, { exact: true }).first()).toBeVisible()
 
   // The line that asks to sign in again is a link to /account, with nothing to open.
   const again = page.getByRole('region', { name: t.sync }).getByRole('link', { name: t.syncSignInAgain, exact: true })

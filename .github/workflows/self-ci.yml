@@ -43,6 +43,8 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v5
         with:
@@ -61,6 +63,11 @@ jobs:
   # database, and runs its smoke test and the app's backend tests against it. Never
   # published: it is nobody's backend.
   template-backend:
+    # GitHub checks what the called jobs ask for before it looks at their conditions, so
+    # this has to allow what the publish job would take. That job never runs here.
+    permissions:
+      contents: read
+      packages: write
     uses: ./.github/workflows/backend.yml
     with:
       setup: node scripts/make-project.mjs /tmp/harness-template-backend/spun-up --sync

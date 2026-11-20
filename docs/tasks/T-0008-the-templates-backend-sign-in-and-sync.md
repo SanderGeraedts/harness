@@ -754,3 +754,30 @@ One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
   lazy page has rendered (2 of 30 alone); and the item form takes a title the backend refuses
   for good, which stops every change behind it. Everything else passed (*Test*). The pull
   request stays a draft; back to the developer.
+- 2026-11-20 developer: fixed what the tester sent back. (1) The flaky test: the `/design`
+  test in `e2e/sync-off.spec.ts` read the lines with `allTextContents()` before the lazy
+  page had rendered; it now waits for each line. Looked through both templates' specs for
+  the same: the one other read without a wait of its own, the links in `items.spec.ts`, now
+  waits for a link first. The two specs with `--repeat-each=30 --workers=5`: `480 passed`.
+  (2) The item form has the backend's limits, in both templates: 500 characters for a
+  title, 20,000 for a note, as `TITLE_MAX` and `NOTE_MAX` in `src/db/db.ts`; the fields stop
+  at them (`maxLength`), the form and the write API refuse a longer value in words
+  (`titleTooLong`, `noteTooLong` in `text.ts`), an end-to-end test covers each, and in a
+  project that syncs a unit test keeps the limits and the statuses the same as the
+  backend's migration. (3) Publishing is a job of its own in the reusable `backend.yml`:
+  the only one with `packages: write`, on the default branch only, after the job that
+  builds and tests, from which it gets the image as an artifact; that job, which also runs
+  for pull requests, has `contents: read` and a checkout that keeps no token. GitHub checks
+  what a called workflow's jobs ask for before their conditions, so the calling job still
+  has to allow `packages: write`, in a project and in the harness's own CI. Merged `main`.
+  Checks: `pnpm test`: `tests 125, pass 125, fail 0`; `pnpm run check`: `✓ tasks: 9 tasks,
+  index in step`, `✓ global decisions: 29 records, index complete`, `✓ agents: 4
+  definitions`; `node scripts/self-test.mjs --e2e` three times in a row, each `✓ self-test
+  passed: 25 steps, harness 0.5.0 in a throwaway project`.
+- 2026-11-20 developer: open, for the architect: what happens to a change the backend
+  refuses for good. The form's limits close the one way found to make one, but any change
+  the backend answers with a refusal that will not go away (its schema, a rule) still stays
+  at the head of the outbox, holds up every change behind it, and shows only as "Sync
+  failed". Whether such a row is set aside, shown to the user or dropped is a decision; it
+  is not built here. Remaining: the new `publish` job, like the step before it, has never
+  run; it runs on a project's default branch only, with the live proof of T-0004.

@@ -80,21 +80,35 @@ describe('the reusable backend workflow', () => {
 
   it('proves the image on an empty database before it publishes, and only from the default branch', () => {
     const at = (name) => backend.indexOf(`- name: ${name}`);
-    const order = ['Build the image and start it on an empty database', 'Smoke test', 'Backend tests', 'Publish'].map(at);
+    const order = ['Build the image and start it on an empty database', 'Smoke test', 'Backend tests', 'Decide whether to publish', 'Publish'].map(at);
     assert.ok(order.every((i) => i > 0), 'a step is missing');
     assert.deepEqual([...order].sort((a, b) => a - b), order, 'the steps are out of order');
-    const publish = backend.slice(at('Publish'));
-    assert.match(publish, /if: >-\n\s+inputs\.publish && github\.event_name != 'pull_request' &&\n\s+github\.ref_name == github\.event\.repository\.default_branch\n/);
+    assert.match(backend.slice(at('Decide whether to publish')), /if: >-\n\s+inputs\.publish && github\.event_name != 'pull_request' &&\n\s+github\.ref_name == github\.event\.repository\.default_branch\n/);
+    const publish = backend.slice(backend.indexOf('\n  publish:\n'));
     assert.match(publish, /image="ghcr\.io\/\$\{GITHUB_REPOSITORY,,\}-backend"/);
     for (const tag of [':$sha"', ':stable"']) assert.ok(publish.includes(`docker push "$image${tag}`), tag);
     // Nothing but the smoke test and the tests reads the backend's address, and it is this machine.
     assert.match(backend, /BACKEND_TEST_URL: http:\/\/127\.0\.0\.1:8090\n/);
   });
 
-  it("the template's caller grants what publishing needs and can be started by the auto-merge workflow", () => {
+  it('only the publish job may write packages, and the job that runs for pull requests keeps no token', () => {
+    const image = backend.slice(backend.indexOf('\n  image:\n'), backend.indexOf('\n  publish:\n'));
+    const publish = backend.slice(backend.indexOf('\n  publish:\n'));
+    assert.match(image, /\n {4}permissions:\n {6}contents: read\n {4}outputs:/);
+    assert.doesNotMatch(image, /packages:|docker (login|push)|github\.token/);
+    assert.match(image, /- uses: actions\/checkout@v5\n {8}with:\n {10}persist-credentials: false\n/);
+    assert.match(publish, /\n {4}needs: image\n {4}if: needs\.image\.outputs\.publish == 'true'\n/);
+    assert.match(publish, /\n {4}permissions:\n {6}contents: read\n {6}packages: write\n/);
+    // It runs nothing of the project: no checkout, only the image that was proven.
+    assert.doesNotMatch(publish, /actions\/checkout|pnpm|inputs\./);
+    assert.equal(backend.slice(backend.indexOf('\njobs:\n')).match(/packages: write/g).length, 1, 'on the publish job only');
+  });
+
+  it("the template's caller grants packages: write to that one job only, and can be started by the auto-merge workflow", () => {
     const caller = text('template-sync/_github/workflows/backend.yml');
     assert.match(caller, /\n {2}workflow_dispatch:\n/);
-    assert.match(caller, /\npermissions:\n {2}contents: read\n {2}packages: write\n/);
+    assert.match(caller, /\npermissions:\n {2}contents: read\n\n/);
+    assert.match(caller, /\n {2}image:\n(?: {4}#.*\n)+ {4}permissions:\n {6}contents: read\n {6}packages: write\n {4}uses: /);
     assert.match(caller, /uses: SanderGeraedts\/harness\/\.github\/workflows\/backend\.yml@__HARNESS_REF__\n/);
     const merge = text('template-sync/_github/workflows/auto-merge.yml');
     const paths = new RegExp(merge.match(/backend-paths: "(.*)"/)[1].replaceAll('\\\\', '\\'));
