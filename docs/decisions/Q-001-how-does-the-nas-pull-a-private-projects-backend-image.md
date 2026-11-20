@@ -2,12 +2,12 @@
 id: Q-001
 title: "How does the NAS pull a private project's backend image?"
 description: "New repositories are private, so their backend image is private too; the NAS needs either a read-only pull token, held with the other secrets, or the image made public."
-status: Open                # Open | Resolved
+status: Resolved            # Open | Resolved
 raised_on: 2026-11-20
 raised_by: architect        # the agent role, or engineer
 issue: "https://github.com/SanderGeraedts/harness/issues/10"
 blocks: [T-0004]            # what waits on it, e.g. [T-0012]
-resolved_by: []             # the decision that answers it, e.g. [D-0004]
+resolved_by: [G-0030]       # the decision that answers it, e.g. [D-0004]
 tags: [operations]
 ---
 
@@ -66,4 +66,4 @@ this, and in T-0004 only the pull itself waits.
 
 # Answer
 
-Empty while open.
+2026-11-20, the Engineer on issue #10: option C. Recorded as G-0030.
