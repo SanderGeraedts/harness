@@ -5,7 +5,7 @@ description: "While a project's repository is private, the NAS pulls its backend
 status: Accepted            # Accepted | Replaced
 date: 2026-11-20
 decided_by: engineer
-since: 0.6.0                # the harness version that added this record
+since: 0.7.0                # the harness version that added this record
 changed: ""                 # the version in which it was replaced or redacted
 replaces: []
 replaced_by: []
