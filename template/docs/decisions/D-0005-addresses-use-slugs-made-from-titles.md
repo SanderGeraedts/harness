@@ -38,8 +38,8 @@ slugs keeps a shared address working after a rename.
 
 # Consequences
 
-- Two devices can pick the same slug while offline. When sync is built, the backend settles
-  it and devices take its answer (`src/sync/README.md`).
+- If sync is ever added, two devices can pick the same slug while offline; the backend then
+  has to settle it, and devices take its answer (`src/sync/README.md`).
 - A new kind of record needs its own slug rule or a natural key, such as a date.
 
 # Guidance for agents

@@ -1,0 +1,26 @@
+# Every green pull request that isn't a draft merges itself (G-0011), through the harness's
+# reusable workflow. Keep the ref the same as the harness dependency in package.json (G-0004).
+#
+# A merge made by this workflow starts no push workflows, so after merging a pull request
+# that touched the backend it starts the backend workflow itself, which publishes the image.
+#
+# GitHub runs workflow_run workflows from the default branch, so a pull request can't change
+# how its own merge is decided.
+name: Auto-merge
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  merge:
+    uses: SanderGeraedts/harness/.github/workflows/auto-merge.yml@__HARNESS_REF__
+    with:
+      backend-workflow: backend.yml
+      backend-paths: "^(backend/|\\.github/workflows/backend\\.yml$)"

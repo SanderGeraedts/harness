@@ -11,6 +11,13 @@ import Dexie, { type EntityTable } from 'dexie'
 export const ITEM_STATUSES = ['open', 'doing', 'done'] as const
 export type ItemStatus = (typeof ITEM_STATUSES)[number]
 
+/**
+ * The longest title and note, in characters. The backend of a project that syncs has the
+ * same limits; a longer value would be refused there for good, so it is refused here first.
+ */
+export const TITLE_MAX = 500
+export const NOTE_MAX = 20_000
+
 export interface Item {
   /** Internal id. Never shown to a user, in an address or elsewhere (G-0021). */
   id: string

@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
+import { NOTE_MAX, TITLE_MAX } from '../src/db/db'
 import { buildDemoItems } from '../src/seed/demo'
 import { t } from '../src/text'
 
@@ -11,6 +12,8 @@ const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
 /** The address bar and every link on the page: none may hold a UUID (G-0021). */
 async function expectNoUuid(page: Page) {
   expect(page.url()).not.toMatch(UUID)
+  // Wait for a link before reading them all: reading doesn't wait by itself.
+  await expect(page.locator('a[href]').first()).toBeVisible()
   const hrefs = await page.locator('a[href]').evaluateAll((links) => links.map((a) => (a as HTMLAnchorElement).href))
   expect(hrefs.length).toBeGreaterThan(0)
   for (const href of hrefs) expect(href).not.toMatch(UUID)
@@ -100,6 +103,56 @@ test('the form asks for a title', async ({ page }) => {
   await page.getByRole('button', { name: t.save }).click()
   await expect(page.getByRole('alert')).toHaveText(t.titleMissing)
   await expect(page).toHaveURL('/items/new')
+})
+
+// The same limits the backend of a project that syncs has: a longer value could never sync.
+
+/** Puts a value in a field past its `maxlength`, as a script or an autofill could. */
+async function force(field: Locator, value: string) {
+  await field.evaluate((el, v) => {
+    const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
+    Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(el, v)
+    el.dispatchEvent(new Event('input', { bubbles: true }))
+  }, value)
+}
+
+test('a title stops at its limit, and a longer one is refused in words', async ({ page }) => {
+  await page.goto('/items/new')
+  const title = page.getByLabel(t.title)
+  await expect(title).toHaveAttribute('maxlength', String(TITLE_MAX))
+  // Typing and pasting stop at the limit.
+  await title.fill('t'.repeat(TITLE_MAX + 1))
+  await expect(title).toHaveValue('t'.repeat(TITLE_MAX))
+
+  await force(title, 't'.repeat(TITLE_MAX + 1))
+  await page.getByRole('button', { name: t.save }).click()
+  await expect(page.getByRole('alert')).toHaveText(t.titleTooLong(TITLE_MAX))
+  await expect(page).toHaveURL('/items/new')
+
+  // Exactly as long as the limit, it saves.
+  await title.fill('t'.repeat(TITLE_MAX))
+  await page.getByRole('button', { name: t.save }).click()
+  await expect(page).toHaveURL(/\/items\/t+$/)
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+})
+
+test('a note stops at its limit, and a longer one is refused in words', async ({ page }) => {
+  await page.goto('/items/new')
+  const note = page.getByLabel(t.note)
+  await expect(note).toHaveAttribute('maxlength', String(NOTE_MAX))
+  await page.getByLabel(t.title).fill('A long note')
+  await note.fill('n'.repeat(NOTE_MAX + 1))
+  await expect(note).toHaveValue('n'.repeat(NOTE_MAX))
+
+  await force(note, 'n'.repeat(NOTE_MAX + 1))
+  await page.getByRole('button', { name: t.save }).click()
+  await expect(page.getByRole('alert')).toHaveText(t.noteTooLong(NOTE_MAX))
+  await expect(page).toHaveURL('/items/new')
+
+  await note.fill('n'.repeat(NOTE_MAX))
+  await page.getByRole('button', { name: t.save }).click()
+  await expect(page).toHaveURL('/items/a-long-note')
+  await expect(page.getByRole('heading', { level: 1, name: 'A long note' })).toBeVisible()
 })
 
 test('an address that leads nowhere says so', async ({ page }) => {

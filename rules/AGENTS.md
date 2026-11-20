@@ -51,9 +51,12 @@ developer instead of fixing it.
 - **Never merge a red, pending or draft pull request.**
 - **Never push to the default branch, and never skip git hooks** (`--no-verify`).
 - Say plainly in the pull request when it changes a workflow, `.claude/` or `.githooks/`.
-- **Agents keep the default branch's ruleset** (G-0025): `pnpm exec harness protect <check>`
-  creates or updates it (pull request required, the CI check required, no deletion, no
-  force-push, no bypass). Never weaken it to get a change in.
+- **Agents keep the default branch's ruleset wherever GitHub allows one** (G-0029):
+  `pnpm exec harness protect <check>` creates or updates it (pull request required, the CI
+  check required, no deletion, no force-push, no bypass). Never weaken it to get a change in.
+- **New repositories are private** (G-0029). A private repository on a free plan has no
+  ruleset: say so once, as a `Remaining:` line, and go on. Only the Engineer makes a
+  repository public; then run `harness protect` on it in the same session.
 
 ## Tasks
 
@@ -124,9 +127,20 @@ architect turns a lesson that repeats into a proposed rule change for the harnes
   one exception is the registry README's project section, between its two marker lines.
 - **Only production reaches the real backend** (G-0019). Local development, tests and
   previews run on seeded demo data or a throwaway backend.
-- **Manage the NAS only with `pnpm exec harness nas`** (G-0022), and only in a session with
-  the Engineer. Ask the Engineer in chat before any `--confirmed` call, and never print or
-  commit the key.
+- **No agent reads, prints or carries a secret** (G-0026). The infrastructure's secrets are
+  held by a GitHub environment of the Engineer's private infrastructure repository, and
+  infrastructure work runs there as workflows. Check that a secret exists by its name only.
+  Never write a host name, tailnet name, address of the NAS or dataset path into a
+  repository, a pull request, an issue, a task or a decision.
+- **Manage the NAS only with `pnpm exec harness nas`** (G-0027), normally as
+  `harness nas --remote`, which runs it in a workflow on the runner on the NAS, and only in a
+  session with the Engineer. Ask the Engineer in chat before any `--confirmed` call. Taking a
+  snapshot needs no yes; take one before a risky change.
+- **Never start an infrastructure workflow with `gh workflow run` directly.** Always go
+  through `harness nas --remote` or `harness infra`, which check the call first. Claude Code
+  asks a human before any command that carries `confirmed=true`.
+- **Spin-up is the Engineer's** (G-0028): `harness create` and `harness infra` refuse anyone
+  else, and removing a project's infrastructure is a separate command that asks first.
 
 ## Prove your work
 

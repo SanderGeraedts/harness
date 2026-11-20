@@ -41,3 +41,5 @@ designer for review when a user sees the change, otherwise to the tester.
 - Don't change the task's *Done when* to fit what you built.
 - Don't point local development, tests or previews at a real backend, and don't touch
   infrastructure.
+- Never read, print or carry a secret (G-0026): check that one exists by its name only, and
+  never write a host name, address or dataset path into the repository.

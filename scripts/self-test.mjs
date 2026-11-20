@@ -3,8 +3,9 @@
 // a throwaway project, and runs its commands there.
 //   pnpm run self-test [--keep] [--keep-on-failure] [--e2e]
 // --keep leaves the throwaway projects behind; --keep-on-failure only when a step failed;
-// --e2e also runs the end-to-end tests of the project `harness create` makes (installs a
-// browser).
+// --e2e also runs the end-to-end tests of the two projects `harness create` makes (installs a
+// browser). The tests of the sign-in and sync need a throwaway backend: Docker, or one that
+// is already running at BACKEND_TEST_URL; without either they are left out, except in CI.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -157,6 +158,12 @@ try {
   assert.match(ok(`${harness} changes v0.0.0 v${own.version}`), /## Added\n\n- G-0001 /);
   assert.match(ok(`${harness} changes v${own.version}`), /^No global decisions were added, changed or replaced/);
   fails(`${harness} changes v${own.version} v999.0.0`, /newer than the installed harness/);
+  // G-0026 to G-0029 carry since: 0.4.0, a version never tagged: they came with 0.5.0.
+  const changes04 = ok(`${harness} changes v0.3.0 v0.4.0`);
+  const section = (title) => changes04.match(new RegExp(`## ${title}\\n\\n([\\s\\S]*?)(?=\\n## |$)`))?.[1] ?? '';
+  assert.match(section('Added'), /^- G-0026 /m);
+  for (const id of ['G-0022', 'G-0024', 'G-0025']) assert.match(section('Replaced'), new RegExp(`^- ${id} .*\\(replaced by G-00\\d\\d\\)`, 'm'), `${id} is listed as replaced`);
+  assert.doesNotMatch(ok(`${harness} changes v0.5.0 v0.6.0`), /G-002[6-9]/, 'G-0026 to G-0029 shipped with 0.5.0');
 
   step('harness waiting');
   const waiting = ok(`${harness} waiting . .`);
@@ -171,9 +178,97 @@ try {
 
   step('harness nas refuses a destructive call, and gets to the connection otherwise');
   const nasEnv = { TRUENAS_HOST: 'localhost:9', TRUENAS_API_KEY: '', TRUENAS_CERT_SHA256: '' };
-  const refused = fails(`${harness} nas pool.dataset.delete`, /is destructive \(G-0022\): ask the Engineer/, { env: nasEnv });
+  const refused = fails(`${harness} nas pool.dataset.delete`, /is destructive \(G-0027\): ask the Engineer/, { env: nasEnv });
   assert.equal(refused.status, 2);
   fails(`${harness} nas pool.snapshot.create`, /Can't reach wss:\/\/localhost:9/, { env: nasEnv });
+
+  // No infrastructure repository is set for these steps, whatever this machine has.
+  const configDir = join(work, 'config');
+  mkdirSync(configDir);
+  const noInfra = { HARNESS_INFRA_REPO: '', HARNESS_INFRA_ENVIRONMENT: '', HARNESS_CONFIG_DIR: configDir };
+
+  step('harness nas --remote refuses a destructive call before any workflow is started');
+  const remoteRefused = fails(`${harness} nas --remote pool.dataset.delete '["x"]'`, /^pool\.dataset\.delete is destructive \(G-0027\): ask the Engineer in chat, then rerun with --confirmed\.$/m, { env: noInfra });
+  assert.equal(remoteRefused.status, 2);
+  assert.doesNotMatch(remoteRefused.out, /gh |workflow|only the Engineer/);
+
+  step('harness infra init --dir writes the infrastructure repository\'s files, and nothing else');
+  const infraDir = join(work, 'infra');
+  const initOut = ok(`${harness} infra init --dir "${infraDir}"`, { env: noInfra });
+  assert.match(initOut, /Nothing on GitHub was touched\./);
+  const infraFilesFound = [];
+  const walkInfra = (rel) => {
+    for (const e of readdirSync(join(infraDir, rel), { withFileTypes: true })) {
+      const path = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) walkInfra(path);
+      else infraFilesFound.push(path);
+    }
+  };
+  walkInfra('');
+  const callers = ['.github/workflows/check.yml', '.github/workflows/nas.yml', '.github/workflows/project-down.yml', '.github/workflows/project-up.yml'];
+  assert.deepEqual(infraFilesFound.sort(), [...callers, 'README.md'].sort());
+  for (const f of callers) {
+    const text = readFileSync(join(infraDir, f), 'utf8');
+    const uses = [...text.matchAll(/^\s*uses: (\S+)$/gm)].map((m) => m[1]);
+    assert.equal(uses.length, 1, `${f} calls one reusable workflow`);
+    assert.match(uses[0], new RegExp(`^SanderGeraedts/harness/\\.github/workflows/infra-[a-z-]+\\.yml@v${own.version.replaceAll('.', '\\.')}$`), `${f} is pinned to the tag`);
+    assert.match(text, /^ {4}secrets: inherit$/m, `${f} passes secrets: inherit`);
+    assert.match(text, /^ {6}environment: Prod$/m, `${f} names the environment`);
+    assert.match(text, new RegExp(`^ {6}harness-ref: v${own.version.replaceAll('.', '\\.')}$`, 'm'), `${f} passes the tag on`);
+    assert.match(text, /^ {2}workflow_dispatch:$/m);
+  }
+  // Each caller's reusable workflow exists in this harness.
+  for (const f of callers) {
+    const reusable = readFileSync(join(infraDir, f), 'utf8').match(/workflows\/(infra-[a-z-]+\.yml)@/)[1];
+    assert.ok(existsSync(join(root, '.github', 'workflows', reusable)), `the harness has ${reusable}`);
+  }
+  const everything = infraFilesFound.map((f) => readFileSync(join(infraDir, f), 'utf8')).join('\n');
+  for (const [what, re] of [
+    ['an IPv4 address', /\b\d{1,3}(\.\d{1,3}){3}\b/],
+    ['a dataset path', /\/mnt\//],
+    ['a tailnet name', /\.ts\.net\b/],
+    ['a Tailscale key', /tskey-/],
+    ['a GitHub token', /\bgh[pousr]_[A-Za-z0-9]/],
+    ['a Netlify token', /nfp_/],
+    ['a key or certificate', /-----BEGIN/],
+    ['a fingerprint', /([0-9A-F]{2}:){8}/i],
+  ])
+    assert.doesNotMatch(everything, re, `the generated files hold ${what}`);
+  ok(`${harness} infra init --dir "${infraDir}" --environment Other`, { env: noInfra });
+  assert.match(readFileSync(join(infraDir, '.github/workflows/nas.yml'), 'utf8'), /^ {6}environment: Other$/m);
+
+  step('harness infra and nas --remote refuse an account that is not the Engineer');
+  // A project that lists someone else. Signed in or not, this machine's account isn't them.
+  const elsewhere = join(work, 'not-the-engineer');
+  mkdirSync(join(elsewhere, '.harness'), { recursive: true });
+  writeFileSync(join(elsewhere, '.harness', 'engineers'), 'engineer-of-another-project\n');
+  const infraBin = `"${process.execPath}" "${join(installed, 'bin', 'harness.mjs')}"`;
+  // What only reads (check, status) is refused a look; the rest a change.
+  for (const [command, verb] of [['infra init', 'change'], ['infra init --repo someone/infra', 'change'], ['infra runner install', 'change'], ['nas --remote core.ping', 'change'], ['infra check', 'look at'], ['infra runner status', 'look at']])
+    fails(`${infraBin} ${command}`, new RegExp(`only the Engineer may ${verb} the infrastructure \\(G-0026\\)`), { cwd: elsewhere, env: { ...noInfra, HARNESS_INFRA_REPO: 'someone/infra' } });
+
+  step('Claude Code asks a human before a workflow is started with confirmed=true directly');
+  const ask = JSON.parse(get('.claude/settings.json')).permissions.ask;
+  for (const rule of ['Bash(*--confirmed*)', 'PowerShell(*--confirmed*)', 'Bash(*confirmed=true*)', 'PowerShell(*confirmed=true*)']) assert.ok(ask.includes(rule), `the ask rules hold ${rule}`);
+
+  step('harness infra and nas --remote stop with a plain message when no infrastructure repository is set');
+  // As the Engineer of this project, told who is signed in: CI has no gh account.
+  writeFileSync(
+    join(work, 'infra-unset.mjs'),
+    `import { main } from ${JSON.stringify(pathToFileURL(join(installed, 'lib', 'infra.mjs')).href)};
+import { remoteNas } from ${JSON.stringify(pathToFileURL(join(installed, 'lib', 'infra.mjs')).href)};
+const deps = { getLogin: () => 'engineer-one', gh: () => { throw new Error('gh must not be called'); }, interactive: false };
+const codes = [];
+for (const args of [['init'], ['check'], ['runner', 'install'], ['runner', 'status']]) codes.push(await main(args, process.cwd(), deps));
+codes.push(await remoteNas({ method: 'core.ping', params: [] }, { cwd: process.cwd(), ...deps }));
+console.log('codes', codes.join(','));
+`,
+  );
+  const unset = sh(`"${process.execPath}" "${join(work, 'infra-unset.mjs')}"`, { env: noInfra });
+  assert.match(unset.out, /^codes 1,1,1,1,1$/m, unset.out);
+  assert.equal(unset.out.match(/No private infrastructure repository is set \(G-0026\)\. Set it once with harness infra init --repo <owner>\/<name>, or set HARNESS_INFRA_REPO\./g)?.length, 5, unset.out);
+  assert.doesNotMatch(unset.out, /gh must not be called/);
+  assert.deepEqual(readdirSync(configDir), [], 'nothing was remembered');
 
   step('the pre-push hook refuses the default branch and lets a feature branch through');
   const hook = (ref) => sh(`printf 'refs/heads/x 1 ${ref} 0\\n' | sh .githooks/pre-push`);
@@ -263,52 +358,136 @@ try {
   step('harness create refuses anyone who is not the Engineer');
   // Outside a project and without --engineer nobody is the Engineer, signed in or not.
   const bin = `"${process.execPath}" "${join(installed, 'bin', 'harness.mjs')}"`;
-  fails(`${bin} create spun-up --purpose "Try the template." --no-github`, /only the Engineer creates a project \(G-0024\)/, { cwd: work });
+  fails(`${bin} create spun-up --purpose "Try the template." --no-github`, /only the Engineer creates a project \((G-0028)\)/, { cwd: work });
   assert.ok(!existsSync(join(work, 'spun-up')), 'a refused create must write nothing');
   assert.match(ok(`${harness} create --help`), /--harness-ref <ref>/);
 
-  step('harness create --no-github makes a project from the template');
+  // Two projects, as `create` makes them: one that syncs (the default) and one that doesn't.
   // The installed copy, told who is signed in: CI has no gh account to be the Engineer.
-  const created = join(work, 'spun-up');
-  const createArgs = ['spun-up', '--purpose', 'Try the template.', '--engineer', 'engineer-one', '--accent', '#aa3366', '--language', 'nl', '--no-github', '--git-name', 'Self-test', '--git-email', 'self-test@example.invalid', '--harness-package', join(work, tarball)];
-  writeFileSync(
-    join(work, 'create.mjs'),
-    `import { main } from ${JSON.stringify(pathToFileURL(join(installed, 'lib', 'create.mjs')).href)};\nprocess.exitCode = await main(${JSON.stringify(createArgs)}, process.cwd(), { getLogin: () => 'engineer-one', interactive: false });\n`,
-  );
-  const createOut = ok(`"${process.execPath}" create.mjs`, { cwd: work });
-  for (const line of [/✓ tasks: 3 tasks, index in step/, /✓ decisions: 5 records, index complete/, /✓ engineers: 1 listed/, /✓ generated files: current/, /✓ first commit on main/, /Stopped before GitHub/])
-    assert.match(createOut, line);
-  const inCreated = { cwd: created };
-  assert.equal(ok('git rev-list --count HEAD', inCreated).trim(), '1');
-  assert.equal(ok('git status --porcelain', inCreated).trim(), '', 'everything is in the first commit');
-  assert.equal(ok('git branch --show-current', inCreated).trim(), 'main');
-  // The identity given is the first commit's, and this repository's from then on.
-  assert.equal(ok('git log -1 --format=%an/%ae/%cn/%ce', inCreated).trim(), 'Self-test/self-test@example.invalid/Self-test/self-test@example.invalid');
-  assert.equal(ok('git config --local user.email', inCreated).trim(), 'self-test@example.invalid');
-  assert.match(ok('git ls-files -s .githooks/pre-push', inCreated), /^100755 /);
-  const made = (rel) => readFileSync(join(created, rel), 'utf8');
-  assert.match(made('.harness/engineers'), /^engineer-one$/m);
-  for (const wf of ['ci.yml', 'auto-merge.yml']) assert.ok(made(`.github/workflows/${wf}`).includes(`/.github/workflows/${wf}@v${own.version}\n`), `${wf} is pinned to the tag`);
-  assert.match(made('AGENTS.md'), /^\*\*Spun up\.\*\* Try the template\.$/m);
-  assert.match(made('docs/tasks/index.md'), /T-0003 Translate the interface/);
-  assert.doesNotMatch(made('src/styles/app.css') + made('package.json') + made('index.html'), /__[A-Z]+(_[A-Z]+)*__/);
-  for (const f of ['public/icons/icon-192.png', 'public/icons/icon.svg', 'pnpm-lock.yaml', '.gitignore']) assert.ok(existsSync(join(created, f)), `create did not make ${f}`);
+  // The first has a title as long as a title may be, for the tests at 320px.
+  const longTitle = 'A title as long as a title may be and not a character longer';
+  assert.equal(longTitle.length, 60);
+  const made = (dir) => (rel) => readFileSync(join(dir, rel), 'utf8');
+  const tracked = (dir) => ok('git ls-files', { cwd: dir }).trim().split('\n');
+  const createProject = (name, flags) => {
+    const args = [name, '--purpose', 'Try the template.', '--engineer', 'engineer-one', '--accent', '#aa3366', '--language', 'nl', '--no-github', '--git-name', 'Self-test', '--git-email', 'self-test@example.invalid', '--harness-package', join(work, tarball), ...flags];
+    writeFileSync(
+      join(work, `create-${name}.mjs`),
+      `import { main } from ${JSON.stringify(pathToFileURL(join(installed, 'lib', 'create.mjs')).href)};\nprocess.exitCode = await main(${JSON.stringify(args)}, process.cwd(), { getLogin: () => 'engineer-one', interactive: false });\n`,
+    );
+    const out = ok(`"${process.execPath}" create-${name}.mjs`, { cwd: work });
+    const dir = join(work, name);
+    for (const line of [/✓ engineers: 1 listed/, /✓ generated files: current/, /✓ first commit on main/, /Stopped before GitHub/]) assert.match(out, line);
+    assert.equal(ok('git rev-list --count HEAD', { cwd: dir }).trim(), '1');
+    assert.equal(ok('git status --porcelain', { cwd: dir }).trim(), '', 'everything is in the first commit');
+    assert.equal(ok('git branch --show-current', { cwd: dir }).trim(), 'main');
+    // The identity given is the first commit's, and this repository's from then on.
+    assert.equal(ok('git log -1 --format=%an/%ae/%cn/%ce', { cwd: dir }).trim(), 'Self-test/self-test@example.invalid/Self-test/self-test@example.invalid');
+    assert.equal(ok('git config --local user.email', { cwd: dir }).trim(), 'self-test@example.invalid');
+    assert.match(ok('git ls-files -s .githooks/pre-push', { cwd: dir }), /^100755 /);
+    const get = made(dir);
+    assert.match(get('.harness/engineers'), /^engineer-one$/m);
+    for (const wf of ['ci.yml', 'auto-merge.yml']) assert.ok(get(`.github/workflows/${wf}`).includes(`/.github/workflows/${wf}@v${own.version}\n`), `${wf} is pinned to the tag`);
+    assert.match(get('docs/tasks/index.md'), /T-000\d Translate the interface/);
+    for (const f of tracked(dir).filter((x) => /\.(ts|tsx|css|json|html|md|yml|sh|js|toml)$/.test(x))) assert.doesNotMatch(get(f), /__(PROJECT|ACCENT|ON_ACCENT|FONT|LANGUAGE|HARNESS_REF|DATE)[A-Z_]*__/, `${f} has a placeholder left`);
+    for (const f of ['public/icons/icon-192.png', 'public/icons/icon.svg', 'pnpm-lock.yaml', '.gitignore']) assert.ok(existsSync(join(dir, f)), `create did not make ${f}`);
+    return { dir, out, get, in: { cwd: dir } };
+  };
 
-  step('the created project installs, type-checks, passes its tests, builds and passes harness check');
-  ok('pnpm install --frozen-lockfile', inCreated);
-  ok('pnpm run typecheck', inCreated);
-  // Colour codes may sit between the words, so only the count is matched.
-  assert.match(ok('pnpm test', inCreated), /\d+ passed/);
-  ok('pnpm run build', inCreated);
-  assert.ok(existsSync(join(created, 'dist', 'sw.js')), 'the build has a service worker');
-  assert.match(ok(`${harness} check`, inCreated), /✓ generated files: current/);
+  step('harness create --no-github makes a project that syncs, the default');
+  const syncs = createProject('spun-up', ['--title', longTitle]);
+  for (const line of [/with a backend, sign-in and sync/, /10 decisions and the first tasks recorded/, /✓ tasks: 3 tasks, index in step/, /✓ decisions: 10 records, index complete/]) assert.match(syncs.out, line);
+  assert.match(syncs.get('AGENTS.md'), /^\*\*A title as long as a title may be and not a character longer\.\*\* Try the template\.$/m);
+  assert.match(syncs.get('AGENTS.md'), /Only the user's own sign-out clears the device/);
+  for (const f of ['backend/Dockerfile', 'backend/funnel.json', 'backend/smoke-test.sh', 'backend/throwaway.sh', 'backend/pb_migrations/1700000000_initial.js', 'backend/pb_hooks/newest_wins.pb.js', '.github/workflows/backend.yml', 'src/auth/auth.ts', 'src/sync/engine.ts', 'docs/decisions/D-0009-only-the-users-own-sign-out-clears-the-device.md'])
+    assert.ok(tracked(syncs.dir).includes(f), `a project that syncs lacks ${f}`);
+  assert.ok(syncs.get('.github/workflows/backend.yml').includes(`/.github/workflows/backend.yml@v${own.version}\n`), 'backend.yml is pinned to the tag');
+  assert.match(syncs.get('.github/workflows/auto-merge.yml'), /backend-workflow: backend\.yml/);
+  assert.ok(JSON.parse(syncs.get('package.json')).dependencies.pocketbase, 'a project that syncs has the backend client');
+  assert.match(syncs.get('docs/decisions/index.md'), /D-0002 The app is local-first and syncs with its backend/);
+  assert.match(syncs.get('docs/tasks/index.md'), /T-0002 Run the backend, give production its address, and make the first account/);
+
+  step('harness create --no-sync makes a project without a backend, a sign-in or sync');
+  const local = createProject('stays-local', ['--no-sync']);
+  for (const line of [/without sync/, /5 decisions and the first tasks recorded/, /✓ tasks: 2 tasks, index in step/, /✓ decisions: 5 records, index complete/]) assert.match(local.out, line);
+  assert.match(local.get('AGENTS.md'), /^\*\*Stays local\.\*\* Try the template\.$/m);
+  for (const f of ['backend', 'src/auth', '.github/workflows/backend.yml', 'e2e/production']) assert.ok(!existsSync(join(local.dir, f)), `a project without sync has ${f}`);
+  const localPackage = JSON.parse(local.get('package.json'));
+  assert.ok(!('pocketbase' in { ...localPackage.dependencies, ...localPackage.devDependencies }), 'a project without sync has no backend client');
+  assert.doesNotMatch(local.get('pnpm-lock.yaml'), /pocketbase/);
+  assert.doesNotMatch(local.get('.github/workflows/auto-merge.yml') + local.get('AGENTS.md'), /backend/);
+  assert.match(local.get('docs/decisions/index.md'), /D-0002 The app is local-first and ready to sync/);
+
+  const connectSrc = (dir, out = 'dist') => readFileSync(join(dir, out, '_headers'), 'utf8').match(/connect-src ([^;]*);/)?.[1];
+  for (const [what, project] of [['that syncs', syncs], ['without sync', local]]) {
+    step(`the project ${what} installs, type-checks, passes its tests, builds and passes harness check`);
+    ok('pnpm install --frozen-lockfile', project.in);
+    ok('pnpm run typecheck', project.in);
+    // Colour codes may sit between the words, so only the count is matched.
+    assert.match(ok('pnpm test', project.in), /\d+ passed/);
+    ok('pnpm run build', project.in);
+    assert.ok(existsSync(join(project.dir, 'dist', 'sw.js')), 'the build has a service worker');
+    // The content security policy is written at build time; this build has no backend.
+    assert.equal(connectSrc(project.dir), "'self'");
+    assert.match(ok(`${harness} check`, project.in), /✓ generated files: current/);
+  }
+
+  step('only a production build of the project that syncs holds the backend address, the backend client and its origin in the policy');
+  // Every file a build serves, as one text.
+  const served = (dir) => readdirSync(dir, { recursive: true, withFileTypes: true }).filter((e) => e.isFile()).map((e) => readFileSync(join(e.parentPath, e.name), 'latin1')).join('\n');
+  const address = 'https://backend.example';
+  const client = 'auth-with-password'; // a path only the backend's client asks for
+  const builds = { BACKEND_URL: `${address}/` };
+  ok('pnpm exec vite build --outDir dist-preview', { ...syncs.in, env: { ...builds, CONTEXT: 'deploy-preview' } });
+  const preview = served(join(syncs.dir, 'dist-preview'));
+  assert.ok(!preview.includes('backend.example'), 'a preview build holds the backend address');
+  assert.ok(!preview.includes(client), 'a preview build holds the backend client, and with it the sign-in');
+  assert.equal(connectSrc(syncs.dir, 'dist-preview'), "'self'");
+  ok('pnpm exec vite build --outDir dist-production', { ...syncs.in, env: { ...builds, CONTEXT: 'production' } });
+  const production = served(join(syncs.dir, 'dist-production'));
+  assert.ok(production.includes(address), 'a production build lacks the backend address');
+  assert.ok(production.includes(client), 'a production build lacks the backend client');
+  assert.equal(connectSrc(syncs.dir, 'dist-production'), `'self' ${address}`);
+  const headers = (out) => readFileSync(join(syncs.dir, out, '_headers'), 'utf8');
+  assert.equal(headers('dist-production').replace(` ${address}`, ''), headers('dist-preview'), 'the policy differs in more than the backend origin');
+  // The local build of the step before, without CONTEXT, is like a preview.
+  assert.ok(!served(join(syncs.dir, 'dist')).includes(client), 'a local build holds the backend client');
+  // And a production build without an address syncs nothing.
+  ok('pnpm exec vite build --outDir dist-no-address', { ...syncs.in, env: { BACKEND_URL: '', CONTEXT: 'production' } });
+  assert.ok(!served(join(syncs.dir, 'dist-no-address')).includes(client), 'a production build without an address holds the backend client');
+  assert.equal(ok('git status --porcelain', syncs.in).trim(), '', 'the builds are ignored by git');
+
+  step('neither project holds an address, a network name, a storage path or a key');
+  for (const project of [syncs, local]) {
+    for (const f of tracked(project.dir).filter((x) => !/pnpm-lock\.yaml$|\.png$/.test(x))) {
+      const text = project.get(f).replace(/127\.0\.0\.1|0\.0\.0\.0/g, '');
+      for (const [what, pattern] of [['an IP address', /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/], ['a tailnet name', /\.ts\.net\b/], ['a storage path', /\/mnt\//], ['a key', /tskey-|ghp_|nfp_/]])
+        assert.doesNotMatch(text, pattern, `${f} holds ${what}`);
+    }
+  }
+  assert.match(syncs.get('backend/README.md'), /## What lives where/);
 
   if (process.argv.includes('--e2e')) {
-    step('the created project passes its end-to-end tests');
-    ok('pnpm exec playwright install chromium', inCreated);
-    const e2e = ok('pnpm run test:e2e', { ...inCreated, env: { E2E_PORT: '4317' } });
+    // The tests of the sign-in and sync need a throwaway backend: the project starts one
+    // from its own backend/ with Docker, or uses the one at BACKEND_TEST_URL. CI has Docker.
+    const hasBackend = Boolean(process.env.BACKEND_TEST_URL) || Boolean(process.env.CI) || sh('docker info').status === 0;
+    step(`the project that syncs passes its end-to-end tests${hasBackend ? ', with the sign-in and sync against a throwaway backend' : ''}`);
+    // Both projects pin the same Playwright, so this one install serves both.
+    ok('pnpm exec playwright install chromium', syncs.in);
+    const e2e = ok('pnpm exec playwright test --reporter=list', { ...syncs.in, env: { E2E_PORT: '4317' } });
     assert.match(e2e, /\d+ passed/);
     assert.doesNotMatch(e2e, /\d+ (failed|flaky)/);
+    assert.match(e2e, /\[phone\] .*the list shows the seeded items, and says it is demo data/);
+    assert.match(e2e, /\[phone\] .*there is no sign-in, no "Account" link, and \/account is "Not found"/);
+    if (hasBackend) {
+      for (const test of [/signed out, every address shows the sign-in screen and nothing of the app/, /an item made on one page appears on another/, /signing out syncs first/, /a sign-in the backend ended never puts the sign-in screen in place of the app/, /no screen of the sign-in and the account is wider than a 320px phone/])
+        assert.match(e2e, new RegExp(`\\[production\\] .*${test.source}`), `the production tests did not run: ${test.source}`);
+    } else console.log('    no Docker and no BACKEND_TEST_URL here: the tests of the sign-in and sync were left out');
+
+    step('the project without sync passes its end-to-end tests');
+    const localE2e = ok('pnpm exec playwright test --reporter=list', { ...local.in, env: { E2E_PORT: '4327' } });
+    assert.match(localE2e, /\d+ passed/);
+    assert.doesNotMatch(localE2e, /\d+ (failed|flaky|skipped)/);
   }
 
   console.log(`\n✓ self-test passed: ${steps} steps, harness ${own.version} in a throwaway project`);

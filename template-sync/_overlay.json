@@ -1,0 +1,3 @@
+{
+  "remove": ["docs/decisions/D-0002-the-app-is-local-first-and-ready-to-sync.md", "docs/tasks/T-0002-translate-the-interface.md"]
+}

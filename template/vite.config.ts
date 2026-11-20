@@ -1,8 +1,9 @@
 /// <reference types="vitest/config" />
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
+import { headersFile } from './src/headers.ts'
 
 // The host sets CONTEXT to production, deploy-preview or branch-deploy. Anything else
 // (local dev, local builds, CI) is "local".
@@ -12,6 +13,19 @@ const deployContext = process.env.CONTEXT ?? 'local'
 // never read, so it can't end up in a preview, dev or test bundle.
 const backendUrl = deployContext === 'production' ? (process.env.BACKEND_URL ?? '') : ''
 
+// The host reads dist/_headers. It is written here and not kept in netlify.toml, because
+// only a production build may name the backend's origin (connect-src), and the address is
+// never in the repository.
+function headers(): Plugin {
+  return {
+    name: 'headers-file',
+    apply: 'build',
+    generateBundle() {
+      this.emitFile({ type: 'asset', fileName: '_headers', source: headersFile(backendUrl) })
+    },
+  }
+}
+
 export default defineConfig({
   define: {
     __DEPLOY_CONTEXT__: JSON.stringify(deployContext),
@@ -20,6 +34,7 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
+    headers(),
     VitePWA({
       registerType: 'autoUpdate',
       injectRegister: false,

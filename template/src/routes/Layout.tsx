@@ -1,4 +1,5 @@
 import { Link, Outlet } from '@tanstack/react-router'
+import { Band } from '../components/ui'
 import { deployContext, syncConfig } from '../config'
 import { t } from '../text'
 
@@ -12,16 +13,8 @@ export function Layout() {
         </Link>
       </header>
       {/* G-0019: everything but production runs on demo data, and says so. */}
-      {deployContext !== 'production' && (
-        <p className="m-0 bg-surface px-4 py-1.5 text-sm" role="status">
-          {t.demoBanner}
-        </p>
-      )}
-      {deployContext === 'production' && !syncConfig.enabled && (
-        <p className="m-0 bg-surface px-4 py-1.5 text-sm" role="status">
-          {t.offlineOnly}
-        </p>
-      )}
+      {deployContext !== 'production' && <Band>{t.demoBanner}</Band>}
+      {deployContext === 'production' && !syncConfig.enabled && <Band>{t.offlineOnly}</Band>}
       <main className="mx-auto max-w-2xl p-4">
         <Outlet />
       </main>
