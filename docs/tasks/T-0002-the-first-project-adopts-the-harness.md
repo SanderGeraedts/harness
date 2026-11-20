@@ -2,11 +2,11 @@
 id: T-0002
 title: "The first project adopts the harness"
 description: "An existing project that already works this way installs the harness at a tag, moves its process rules and process decisions to the global registry, and runs on the reusable workflows."
-status: Open                # Open | Doing | Done | Dropped
+status: Done                # Open | Doing | Done | Dropped
 depends_on: [T-0001]        # tasks that must be Done first
 decisions: [G-0001, G-0002, G-0004, G-0005, G-0011, G-0025]
 raised_on: 2026-11-20
-done_on: ""
+done_on: "2026-11-20"
 result: []                  # PR URLs
 ---
 
@@ -62,3 +62,4 @@ Not yet tested.
 # Log
 
 One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
+- 2026-11-20 architect: Done. The first project installed v0.1.0, replaced nine process decisions by global ones, runs `harness check` in CI, and merges through the reusable CI and auto-merge workflows called across repositories (`checks / checks`, a green ready PR merged itself). Its ruleset requires the new check name; its dataset has an hourly snapshot task (G-0023). Gaps found are in T-0005.
