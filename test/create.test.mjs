@@ -208,13 +208,21 @@ describe('create: only the Engineer', () => {
 
 describe('create: the steps', () => {
   // Records every command instead of running it; `init` leaves the file create edits.
-  const fake = (o, { repoExists = false, runs = [[], [{ status: 'in_progress', url: 'u' }], [{ status: 'completed', conclusion: 'success', url: 'u' }]] } = {}) => {
+  const fake = (o, { found, scopes, rewrite, runs = [[], [{ status: 'in_progress', url: 'u' }], [{ status: 'completed', conclusion: 'success', url: 'u' }]] } = {}) => {
     const calls = [];
-    const exec = (command, args) => {
+    const exec = (command, args, { cwd } = {}) => {
       const line = `${command === process.execPath ? 'node' : command} ${args.join(' ')}`.replaceAll(o.dir, '<dir>').replaceAll('\\', '/');
       calls.push(line);
-      if (/harness\.mjs init/.test(line)) write(o.dir, 'AGENTS.md', read(join(HARNESS_ROOT, 'templates', 'AGENTS.md')));
-      if (/^gh repo view/.test(line) && !repoExists) throw new Error('not found');
+      if (/harness\.mjs init/.test(line)) write(cwd, 'AGENTS.md', read(join(HARNESS_ROOT, 'templates', 'AGENTS.md')));
+      if (/^gh repo view/.test(line)) {
+        if (!found) throw new Error('not found');
+        return JSON.stringify(found);
+      }
+      if (/^gh api -i user/.test(line)) return scopes === undefined ? 'HTTP/2.0 200 OK\n' : `HTTP/2.0 200 OK\nX-Oauth-Scopes: ${scopes}\n`;
+      if (/^git config --get-regexp/.test(line)) {
+        if (!rewrite) throw new Error('exit 1');
+        return 'url.git@a-host:.insteadof https://github.com/\n';
+      }
       if (/^gh run list/.test(line)) return JSON.stringify(runs.length > 1 ? runs.shift() : runs[0]);
       return '';
     };
@@ -245,7 +253,7 @@ describe('create: the steps', () => {
     const o = { ...options({ engineers: ['engineer-one'] }), dir: join(tempDir(), 'p') };
     const { calls, deps } = fake(o);
     const result = await create(o, deps);
-    assert.equal(calls[0], 'gh repo view engineer-one/my-project --json name');
+    assert.equal(calls[0], 'gh repo view engineer-one/my-project --json isEmpty,visibility');
     const after = calls.slice(calls.indexOf('git commit -q -m Create My project from the harness template') + 1);
     assert.equal(after[0], 'gh repo create engineer-one/my-project --private --description Keep a list.');
     assert.equal(after[1], 'git remote add origin https://github.com/engineer-one/my-project.git');
@@ -257,10 +265,31 @@ describe('create: the steps', () => {
 
   it('stops before writing anything when the repository exists', async () => {
     const o = { ...options({ engineers: ['engineer-one'] }), dir: join(tempDir(), 'p') };
-    const { calls, deps } = fake(o, { repoExists: true });
+    const { calls, deps } = fake(o, { found: { isEmpty: false, visibility: 'PRIVATE' } });
     await assert.rejects(create(o, deps), /engineer-one\/my-project already exists on GitHub/);
     assert.equal(calls.length, 1);
     assert.ok(!existsSync(o.dir));
+  });
+
+  it('uses an empty repository of that name, when its visibility is the one asked for', async () => {
+    const o = { ...options({ engineers: ['engineer-one'] }), dir: join(tempDir(), 'p') };
+    const { calls, deps } = fake(o, { found: { isEmpty: true, visibility: 'PRIVATE' } });
+    await create(o, deps);
+    assert.ok(!calls.some((c) => c.startsWith('gh repo create')));
+    assert.ok(calls.some((c) => / push -q -u origin main$/.test(c)));
+    const open = fake(o, { found: { isEmpty: true, visibility: 'PUBLIC' } });
+    await assert.rejects(create({ ...o, dir: join(tempDir(), 'p') }, open.deps), /exists \(empty\) and is public, not private/);
+  });
+
+  it('stops before writing anything when the token may not push workflow files', async () => {
+    const o = { ...options({ engineers: ['engineer-one'] }), dir: join(tempDir(), 'p') };
+    const { calls, deps } = fake(o, { scopes: 'gist, repo' });
+    await assert.rejects(create(o, deps), /may not push workflow files: run gh auth refresh -s workflow/);
+    assert.ok(!existsSync(o.dir));
+    assert.ok(!calls.some((c) => c.startsWith('gh repo create')));
+    // Fine with the scope, and fine when git pushes to GitHub another way.
+    await create({ ...o, dir: join(tempDir(), 'p') }, fake(o, { scopes: 'repo, workflow' }).deps);
+    await create({ ...o, dir: join(tempDir(), 'p') }, fake(o, { scopes: 'repo', rewrite: true }).deps);
   });
 
   it('does not protect the branch when the first CI run fails', async () => {

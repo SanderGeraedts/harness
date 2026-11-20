@@ -214,7 +214,8 @@ try {
   step('the created project installs, type-checks, passes its tests, builds and passes harness check');
   ok('pnpm install --frozen-lockfile', inCreated);
   ok('pnpm run typecheck', inCreated);
-  assert.match(ok('pnpm test', inCreated), /Tests\s+\d+ passed/);
+  // Colour codes may sit between the words, so only the count is matched.
+  assert.match(ok('pnpm test', inCreated), /\d+ passed/);
   ok('pnpm run build', inCreated);
   assert.ok(existsSync(join(created, 'dist', 'sw.js')), 'the build has a service worker');
   assert.match(ok(`${harness} check`, inCreated), /✓ generated files: current/);

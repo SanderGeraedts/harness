@@ -184,6 +184,13 @@ What it does, in order:
    a ruleset can exist (G-0025). The project's own pre-push hook is not used for it.
 6. Waits for the first CI run and, when it is green, runs `harness protect "checks / checks"`.
 
+The push carries workflow files, so `gh`'s token needs the `workflow` scope
+(`gh auth refresh -s workflow`), unless git is set up to push to GitHub another way (a
+`url.<base>.insteadOf` rule for `https://github.com/`). The command checks this, and that
+no repository of that name exists, before it writes anything. If a run stops after creating
+the repository, remove the local folder and run it again: an empty repository of that name
+with the same visibility is used instead of refused.
+
 The app it creates is local-first and ready to sync: Dexie with `updatedAt`, tombstones and
 an outbox, one write API, slug addresses, seeded demo data outside production, and no
 backend. Hosting, the backend and sync are not created yet.
