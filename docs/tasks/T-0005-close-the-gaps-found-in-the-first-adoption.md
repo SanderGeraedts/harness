@@ -2,7 +2,7 @@
 id: T-0005
 title: "Close the gaps found in the first adoption"
 description: "Let a project decision be replaced by a global one, let a project add to its generated registry README, give the reusable CI artifact options, and add an adopt path for repositories that already have registries."
-status: Open                # Open | Doing | Done | Dropped
+status: Doing               # Open | Doing | Done | Dropped
 depends_on: [T-0002]        # tasks that must be Done first
 decisions: [G-0001, G-0002, G-0004, G-0012, G-0015]
 raised_on: 2026-11-20
@@ -43,9 +43,32 @@ Engineer unless it touches `decisions/`.
 
 # Design
 
-Nothing visible.
+Nothing visible: the changes are command output, generated files and workflow inputs.
 
 # Test
 
 # Log
 
+One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
+- 2026-11-20 developer: built the five parts as 0.2.0, in a draft pull request. (1) `check`
+  accepts a `replaced_by` that names a global decision of the installed harness, and fails
+  on one that isn't there. (2) The generated registry README ends with a project section
+  between two marker lines that `sync` keeps and `check` ignores. (3) The reusable CI has
+  the inputs `artifact-name` (default `ci-artifacts`) and `artifacts-only-on-failure`
+  (default `false`). (4) `harness adopt` reports what is there, what it would add, which
+  generated files differ and which project decisions look like a global one;
+  `adopt --write` adds what is missing and overwrites nothing. (5) The reusable auto-merge
+  starts the CI workflow named by `ci-workflow` (default `ci.yml`) on the default branch
+  after a merge; the harness's own CI has `workflow_dispatch:` and its auto-merge
+  `actions: write`.
+- 2026-11-20 developer: `pnpm test` passes (81 tests, 20 suites), `pnpm run check` passes
+  (5 tasks, 25 global records, 4 agent definitions) and `pnpm run self-test` passes in 16
+  steps; step 16 adopts a second throwaway project that already has a registry with a
+  decision matching G-0016. `decisions/` is untouched, so the pull request doesn't wait for
+  the Engineer. `sync` now writes a different registry README and decision template in
+  every project, on its next update.
+- 2026-11-20 developer: Remaining: the tester's run and the release tag `v0.2.0`; the
+  hold-path proof on a real pull request that touches `decisions/`; and a look at the first
+  merge after this one, which is the first that can start CI on `main` by itself (the
+  auto-merge workflow runs from `main`, so this pull request's own merge still uses the
+  0.1.0 workflow and starts no CI there).

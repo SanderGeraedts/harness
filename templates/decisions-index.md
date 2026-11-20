@@ -2,7 +2,8 @@
 
 Read the global decisions first (`node_modules/@sandergeraedts/harness/decisions/index.md`),
 then this list, then only the records your work touches. How the registry works is in
-[README.md](README.md). One line per record: `- [D-NNNN Title](file.md): one sentence`.
+[README.md](README.md). One line per record: `- [D-NNNN Title](file.md): one sentence`. A decision that a
+global one replaced ends its line with `Replaced by G-NNNN.`
 
 ## Accepted
 

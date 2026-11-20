@@ -31,6 +31,31 @@ describe('overrules', () => {
   });
 });
 
+describe('a replaced_by that names a global decision', () => {
+  const project = () => {
+    const dir = tempDir();
+    write(dir, 'D-0001-a.md', decision({ status: 'Replaced', replacedBy: ['G-0002'] }));
+    write(dir, 'index.md', indexOf(['D-0001-a.md']));
+    return dir;
+  };
+
+  it('is checked against the global ids, and only its form without them', () => {
+    const dir = project();
+    assert.deepEqual(checkRegistry(dir, 'project', { label: 'd', globalIds: new Set(['G-0002']) }).problems, []);
+    assert.deepEqual(checkRegistry(dir, 'project', { label: 'd', globalIds: new Set(['G-0001']) }).problems, [
+      "d/D-0001-a.md: replaced_by names G-0002, which isn't in the installed harness's global registry",
+    ]);
+    assert.deepEqual(checkRegistry(dir, 'project', { label: 'd' }).problems, []);
+  });
+
+  it('is not for the global registry itself', () => {
+    const dir = tempDir();
+    write(dir, 'G-0001-a.md', globalDecision({ id: 'G-0001', status: 'Replaced', changed: '0.2.0', replacedBy: ['G-0002'] }));
+    write(dir, 'index.md', indexOf(['G-0001-a.md']));
+    assert.deepEqual(checkRegistry(dir, 'global', { label: 'decisions' }).problems, ["decisions/G-0001-a.md: names G-0002, which doesn't exist"]);
+  });
+});
+
 describe('changes', () => {
   const globals = () => {
     const dir = tempDir();

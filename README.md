@@ -43,18 +43,22 @@ Every task goes through a pipeline, and each role writes its result in the task 
 The project is an existing git repository with a `package.json`, using pnpm.
 
 ```sh
-pnpm add -D github:SanderGeraedts/harness#v0.1.0
+pnpm add -D github:SanderGeraedts/harness#v0.2.0
 pnpm exec harness init <engineer-github-login>...
 pnpm exec harness check
 ```
+
+In a repository that already has decisions, tasks, a hook or agent files of its own, run
+`pnpm exec harness adopt` instead of `init`: see [Adopt](#adopt-in-a-repository-that-already-has-registries).
 
 `init` creates the registries (`docs/decisions/`, `docs/tasks/`), `.harness/engineers`,
 `docs/lessons.md`, a thin `AGENTS.md` and `CLAUDE.md` that point into
 `node_modules/@sandergeraedts/harness/`, an `.nvmrc`, and the `preinstall` (pnpm only) and
 `prepare` (git hooks) scripts. It never overwrites a file the project already has: in a
 project with its own `AGENTS.md`, add the pointers from
-[templates/AGENTS.md](templates/AGENTS.md) by hand. Then it runs `sync`. Pass
-`--default-branch <name>` when the default branch isn't `main`.
+[templates/AGENTS.md](templates/AGENTS.md) by hand. Then it runs `sync`, which does replace
+the files the harness generates (`harness adopt` shows which of those the project already
+has). Pass `--default-branch <name>` when the default branch isn't `main`.
 
 Add two workflows, pinned to the same tag as the dependency.
 
@@ -68,6 +72,7 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -78,14 +83,23 @@ concurrency:
 
 jobs:
   checks:
-    uses: SanderGeraedts/harness/.github/workflows/ci.yml@v0.1.0
+    uses: SanderGeraedts/harness/.github/workflows/ci.yml@v0.2.0
     # with:
     #   checks: |
     #     pnpm run typecheck
     #     pnpm test
     #     pnpm run build
     #   e2e: pnpm run test:e2e
+    #   artifacts: |
+    #     playwright-report/
+    #     test-results/
+    #   artifact-name: e2e-report
+    #   artifacts-only-on-failure: true
 ```
+
+The workflow needs `workflow_dispatch:`. A merge made with `GITHUB_TOKEN` starts no push
+workflows, so the auto-merge workflow starts CI on the default branch itself after it
+merges, and that is the trigger it uses.
 
 `.github/workflows/auto-merge.yml`:
 
@@ -104,21 +118,39 @@ permissions:
 
 jobs:
   merge:
-    uses: SanderGeraedts/harness/.github/workflows/auto-merge.yml@v0.1.0
+    uses: SanderGeraedts/harness/.github/workflows/auto-merge.yml@v0.2.0
     # with:
+    #   ci-workflow: ci.yml
     #   backend-workflow: backend.yml
     #   backend-paths: '^(backend/|\.github/workflows/backend\.yml)'
 ```
 
-The CI workflow installs with pnpm, runs `harness check`, then the project's own checks (by
-default the `typecheck`, `test` and `build` scripts that exist). A project may add jobs of
-its own next to `checks`; the pull request merges when the whole workflow is green.
+The CI workflow installs with pnpm, runs `harness check`, then the project's own checks. A
+project may add jobs of its own next to `checks`; the pull request merges when the whole
+workflow is green. Its inputs, all optional:
+
+| Input | Default | What |
+| --- | --- | --- |
+| `node-version-file` | `.nvmrc` | the file that names the Node version |
+| `checks` | the `typecheck`, `test` and `build` scripts that exist | the project's checks, as a shell script |
+| `e2e` | none | the end-to-end test command; Playwright's Chromium is installed first |
+| `artifacts` | none | paths to upload as an artifact, one per line |
+| `artifact-name` | `ci-artifacts` | the name of that artifact |
+| `artifacts-only-on-failure` | `false` | `true` uploads only when a step failed, instead of on every run |
 
 The auto-merge workflow merges a green pull request into the default branch when it isn't a
-draft. With `backend-workflow` and `backend-paths` it starts that workflow after merging a
-pull request that touched those paths, because a merge made with `GITHUB_TOKEN` starts no
-push workflows. With `hold-paths` it labels a pull request that touches those paths as
-waiting for the Engineer instead of merging it.
+draft, and then starts CI on the default branch. Its inputs, all optional:
+
+| Input | Default | What |
+| --- | --- | --- |
+| `ci-workflow` | `ci.yml` | the file name of the project's CI workflow, started on the default branch after a merge; empty starts nothing |
+| `backend-workflow`, `backend-paths` | none | a workflow file to start after merging a pull request that touched paths matching the regular expression, e.g. the backend's publish |
+| `hold-paths` | none | a regular expression; a pull request that touches a matching path is labelled as waiting for the Engineer instead of merged |
+| `hold-label` | `waits-for-engineer` | the label a held pull request gets |
+
+Starting a workflow needs the `actions: write` permission in the caller, and the started
+workflow needs a `workflow_dispatch:` trigger. When CI can't be started the merge still
+stands, and the run shows a warning that says what is missing.
 
 Once CI has run, protect the default branch. Agents do this themselves (G-0025). The check
 name is the caller's job name, then the reusable workflow's:
@@ -130,6 +162,63 @@ gh api repos/{owner}/{repo}/rules/branches/main
 
 The auto-merge workflow still merges under the ruleset: it merges through the API, and only
 when the checks passed.
+
+## Adopt, in a repository that already has registries
+
+```sh
+pnpm add -D github:SanderGeraedts/harness#v0.2.0
+pnpm exec harness adopt
+pnpm exec harness adopt --write <engineer-github-login>...
+pnpm exec harness sync
+pnpm exec harness check
+```
+
+`adopt` on its own only reports, and changes nothing:
+
+- **Found:** how many decisions, questions and tasks are there.
+- **Kept:** the project's own files (`AGENTS.md`, the decision index and so on), with what
+  to add to them by hand.
+- **Would add:** every file that is missing.
+- **Differs:** files the harness generates that exist here with other content, such as
+  `docs/decisions/README.md` or `.githooks/pre-push`.
+- **What `harness check` will report** about the records that are there.
+- **Candidates:** the Accepted project decisions that look like a global decision.
+
+`adopt --write` adds what is missing and never overwrites a file. The files that differ stay
+as they are until the project has moved what it wants to keep and runs `harness sync`, which
+replaces them; until then `harness check` names them. Text of the project's own about its
+registry goes in the README's project section (see below).
+
+A candidate is a guess from shared words, for the architect to read. The words of a
+decision's title and description are lower-cased, without words shorter than three letters,
+a short list of stop words and a final "s". A project decision is listed with a global one
+when their titles share at least two words, or titles and descriptions together at least
+three. Its matches are listed best first (words shared by both titles count twice), at most
+three, without any that score under two thirds of the best. Only Accepted records are
+compared, and a global decision the project already overrules is never listed with it. For each
+candidate, either the global decision covers it (set the project decision to `Replaced` with
+`replaced_by: [G-NNNN]`), or the project differs on purpose (keep it, with
+`overrules: [G-NNNN]`).
+
+## What a project may change in its registry
+
+- **`replaced_by` may name a global decision.** A project decision that a global one makes
+  redundant gets `status: Replaced` and `replaced_by: [G-NNNN]`; `harness check` fails when
+  that id isn't in the installed harness. Its line moves to *Replaced* in the project's
+  index and ends with `Replaced by G-NNNN.` in plain text: the index links only to the
+  records in its own folder. `replaces` only names project decisions; a project decision
+  that sets a global one aside uses `overrules`.
+- **The registry README has a project section.** `docs/decisions/README.md` is generated,
+  except for what is between the two marker lines under *Project notes*:
+
+  ```markdown
+  <!-- harness:project-section:start -->
+  The project's own text.
+  <!-- harness:project-section:end -->
+  ```
+
+  `harness sync` keeps that text and `harness check` ignores it. Keep both marker lines:
+  when one is missing or repeated, `sync` and `check` stop with an error instead of guessing.
 
 ## Update
 
@@ -143,6 +232,16 @@ Bump the tag in both workflows in the same pull request, and put the output of `
 its description: the global decisions that were added, changed or replaced. Per decision the
 project's architect opens a task to conform or records an overruling decision.
 
+From 0.1.0 to 0.2.0, also in that pull request:
+
+- Add `workflow_dispatch:` to the `on:` of the CI workflow, and make sure the auto-merge
+  workflow grants `actions: write`. From then on a merge is followed by a CI run on the
+  default branch. A CI workflow file that isn't `ci.yml` is named with `ci-workflow`.
+- `sync` rewrites `docs/decisions/README.md` (it gains the project section) and the decision
+  template. Commit what it writes.
+- Nothing else changes for callers: the new workflow inputs are optional and their defaults
+  behave as 0.1.0 did. No global decision was added, changed or replaced.
+
 `changes` reads the installed copy (each global decision carries the version that added it
 in `since` and the version that replaced or redacted it in `changed`), so run it after
 installing the new version.
@@ -154,13 +253,14 @@ Run from the project root with `pnpm exec harness <command>`.
 | Command | What it does |
 | --- | --- |
 | `role` | prints `engineer` or `requester`: is the signed-in GitHub account (`gh api user`) in `.harness/engineers`? `requester` when the file or `gh` is missing |
-| `check` | what CI checks: the task index is in step, the decision index lists every record and nothing else, front matter is valid, every `overrules` names an existing global decision, the Engineers are listed, and the generated files are current |
+| `check` | what CI checks: the task index is in step, the decision index lists every record and nothing else, front matter is valid, every `overrules` and every `replaced_by` with a `G-NNNN` id names a global decision of the installed harness, the Engineers are listed, and the generated files are current (the registry README's project section aside) |
 | `tasks-index [--check] [dir]` | writes `docs/tasks/index.md` from the task files, or checks it |
 | `overrules` | lists the project decisions that overrule global ones |
 | `changes <fromTag> [toTag]` | lists the global decisions added, changed or replaced after `fromTag`, up to `toTag` (default: the installed version) |
 | `waiting [dir...]` | lists what waits on a human, for one or several project folders: open questions, tasks' `Remaining:` lines, and open GitHub issues that are assigned. Skips issues when `gh` is missing |
-| `sync` | writes or refreshes the generated files: `.claude/agents/*.md`, `.githooks/pre-push`, the push and `--confirmed` rules in `.claude/settings.json` (merged into the project's own), the registry README and the templates |
-| `init [login...]` | sets an existing repository up, then runs `sync` |
+| `sync` | writes or refreshes the generated files: `.claude/agents/*.md`, `.githooks/pre-push`, the push and `--confirmed` rules in `.claude/settings.json` (merged into the project's own), the registry README (keeping its project section) and the templates |
+| `init [login...] [--default-branch <name>]` | sets an existing repository up, then runs `sync` |
+| `adopt [--write] [login...] [--default-branch <name>]` | for a repository that already has registries: reports what is there, what would be added, which generated files differ, and which project decisions look like a global one; changes nothing. With `--write` it adds what is missing and overwrites nothing |
 | `hooks` | points git at `.githooks`; the project's `prepare` script |
 | `protect <check>... [--repo owner/name] [--dry-run]` | creates or updates the ruleset on the default branch through `gh api`: a pull request with 0 approvals, the named checks required (as reported by GitHub Actions), no deletion, no force-push, no bypass actors. Found again by its name, so it is safe to repeat |
 | `nas <method> [params-json] [--job] [--confirmed]` | calls the TrueNAS API; see below |
