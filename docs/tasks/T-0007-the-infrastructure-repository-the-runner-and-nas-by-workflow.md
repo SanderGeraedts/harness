@@ -393,3 +393,5 @@ One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
 - 2026-11-20 tester: Remaining: Done-when 4, `harness nas --remote core.ping` from a machine
   off the home network with no `TRUENAS_*` variable, for the Engineer; and recording here
   the tag `v0.6.0` and the re-pin to it (done by the tester right after the merge).
+- 2026-11-20 tester: Merged as 312a350 (#15); v0.6.0 tagged there; the infrastructure repository re-pinned to v0.6.0 through its pull request, a second init said "nothing changed (harness v0.6.0)", and a `nas --remote core.ping` through the new pin answered "pong".
+- Remaining: Done-when 4, the Engineer runs `harness nas --remote core.ping` from a machine off the home network with no TRUENAS_* variable.
