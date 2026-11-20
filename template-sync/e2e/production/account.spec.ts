@@ -13,6 +13,7 @@ import {
   openSignedIn,
   signIn,
   syncLineOf,
+  syncWordsOf,
   syncRegion,
   titlesOnBackend,
 } from '../backend'
@@ -94,7 +95,8 @@ test('a sign-in the backend ended never puts the sign-in screen in place of the 
   // An item can still be made and changed. The sync that follows finds the sign-in ended.
   await addItem(page, 'Made after the sign-in ended')
   const line = syncLineOf(page)
-  await expect(line).toHaveText(`${t.syncChanges(1)}${t.joiner}${t.syncSignInAgain}`, { timeout: 15_000 })
+  const words = syncWordsOf(page)
+  await expect(words).toHaveText(`${t.syncChanges(1)}${t.joiner}${t.syncSignInAgain}`, { timeout: 15_000 })
   await expect(page.getByRole('heading', { level: 1, name: t.items })).toBeVisible()
   await expect(page.getByRole('heading', { level: 1, name: t.signIn })).toHaveCount(0)
   await page.getByRole('link', { name: 'Made after the sign-in ended' }).click()
@@ -102,7 +104,7 @@ test('a sign-in the backend ended never puts the sign-in screen in place of the 
   await page.getByLabel(t.title).fill('Changed after the sign-in ended')
   await page.getByRole('button', { name: t.save }).click()
   await expect(page.getByRole('heading', { level: 1, name: 'Changed after the sign-in ended' })).toBeVisible()
-  await expect(line).toHaveText(`${t.syncChanges(2)}${t.joiner}${t.syncSignInAgain}`)
+  await expect(words).toHaveText(`${t.syncChanges(2)}${t.joiner}${t.syncSignInAgain}`)
 
   // The line is a link to /account, with nothing to open.
   await expect(line).not.toHaveAttribute('aria-expanded')
@@ -119,7 +121,7 @@ test('a sign-in the backend ended never puts the sign-in screen in place of the 
 
   await signIn(page, account, changed)
   await expect(page.getByText(t.signedInAs(account.email))).toBeVisible()
-  await expect(syncLineOf(page)).toHaveText(t.syncAllSynced)
+  await expect(syncWordsOf(page)).toHaveText(t.syncAllSynced)
   expect(await titlesOnBackend(account)).toEqual(['Before', 'Changed after the sign-in ended'])
 })
 
@@ -135,16 +137,16 @@ test('a sign-in whose date passed, on a device that is offline, changes nothing 
   await page.evaluate(() => navigator.serviceWorker.ready)
   // Offline first: a sync that is still running would renew the token again.
   await context.setOffline(true)
-  await expect(syncLineOf(page)).toHaveText(t.syncOfflineIdle)
+  await expect(syncWordsOf(page)).toHaveText(t.syncOfflineIdle)
   await letTokenRunOut(page)
   await page.reload()
 
   await expect(page.getByRole('heading', { level: 1, name: t.items })).toBeVisible()
   await expect(page.getByRole('heading', { level: 2, name: 'Before' })).toBeVisible()
   await expect(page.getByRole('heading', { level: 1, name: t.signIn })).toHaveCount(0)
-  await expect(syncLineOf(page)).toHaveText(t.syncSignInAgain)
+  await expect(syncWordsOf(page)).toHaveText(t.syncSignInAgain)
   await addItem(page, 'Made offline, after the date passed')
-  await expect(syncLineOf(page)).toHaveText(`${t.syncChanges(1)}${t.joiner}${t.syncSignInAgain}`)
+  await expect(syncWordsOf(page)).toHaveText(`${t.syncChanges(1)}${t.joiner}${t.syncSignInAgain}`)
 
   // The account screen is the same offline; signing in needs the backend.
   await syncLineOf(page).click()
@@ -209,7 +211,7 @@ test('no screen of the sign-in and the account is wider than a 320px phone', asy
   await letTokenRunOut(page)
   await page.reload()
   await expect(page.getByText(t.signInEnded)).toBeVisible()
-  await expect(syncLineOf(page)).toHaveText(`${t.syncChanges(1)}${t.joiner}${t.syncSignInAgain}`)
+  await expect(syncWordsOf(page)).toHaveText(`${t.syncChanges(1)}${t.joiner}${t.syncSignInAgain}`)
   await expectToFit(page, 'the account screen after the sign-in ended')
   await context.setOffline(false)
 })

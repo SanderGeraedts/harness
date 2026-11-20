@@ -27,7 +27,7 @@ test('there is no sign-in, no "Account" link, and /account is "Not found"', asyn
 
 test('/design shows the sync status in each of its states, with the count in singular and plural', async ({ page }) => {
   await page.goto('/design')
-  const lines = await page.getByRole('region', { name: t.sync }).locator('button[aria-expanded], a').allTextContents()
+  const lines = await page.getByRole('region', { name: t.sync }).locator('button[aria-expanded] > span:first-child, a > span').allTextContents()
   for (const line of [
     t.syncAllSynced,
     t.syncChanges(1),
@@ -47,7 +47,7 @@ test('/design shows the sync status in each of its states, with the count in sin
   await expect(again).toHaveAttribute('href', '/account')
 
   // The details: the last sync, the last error with its time, and "Sync now".
-  const open = page.getByRole('region', { name: t.sync }).filter({ has: page.getByText(t.syncLastError) }).first()
+  const open = page.getByRole('region', { name: t.sync }).filter({ has: page.getByText(t.syncNever) }).first()
   for (const text of [t.syncStatusLabel, t.syncLast, t.syncNever, t.syncErrorNoConnection, t.syncOfflineDetail, t.syncStorageDetail]) await expect(open.getByText(text, { exact: true })).toBeVisible()
   await expect(open.getByRole('button', { name: t.syncNow })).toBeDisabled()
   await expect(page.getByRole('button', { name: t.syncing })).toBeDisabled()
@@ -55,8 +55,18 @@ test('/design shows the sync status in each of its states, with the count in sin
   // A closed line opens and closes its details.
   const closed = page.getByRole('region', { name: t.sync }).filter({ hasText: t.syncAllSynced }).first()
   const line = closed.getByRole('button', { name: t.syncAllSynced })
+  // A mark at its end says that it opens; it is not read out, and the details it controls
+  // are in the page while closed, hidden.
+  const mark = line.locator('span[aria-hidden="true"]')
+  const details = page.locator(`[id="${await line.getAttribute('aria-controls')}"]`)
+  await expect(mark).toHaveText('▾')
+  await expect(details).toBeHidden()
+  await expect(details).toHaveCount(1)
+  await expect(again.locator('[aria-hidden]')).toHaveCount(0)
   await line.click()
   await expect(line).toHaveAttribute('aria-expanded', 'true')
+  await expect(mark).toHaveText('▴')
+  await expect(details).toBeVisible()
   await expect(closed.getByRole('button', { name: t.syncNow })).toBeEnabled()
   await expect(closed.getByText(t.syncLast)).toBeVisible()
   await page.keyboard.press('Escape')

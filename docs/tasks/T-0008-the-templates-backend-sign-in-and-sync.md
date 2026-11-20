@@ -558,3 +558,16 @@ One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
   the sync line are listed under *Review after building*: a mark that shows it opens (a gap
   in the design, now added to it), a focus ring that is cut off, and `aria-controls`
   pointing at nothing while closed. The pull request stays a draft.
+- 2026-11-20 developer: fixed what the UX designer sent back, all in the sync line
+  (`SyncStatus.tsx`). (1) A mark at the right end says that it opens: `▾` closed, `▴` open,
+  muted and `aria-hidden`; the words wrap first and the mark never wraps under them; the
+  "Sign in again to sync" link has none. Both positions are on `/design`. (2) The focus
+  ring is drawn inside the band, so all four sides show, for the button and the link.
+  (3) The details stay in the page and are hidden while closed, so `aria-controls` always
+  points at them. The end-to-end tests now compare the line's words without the mark, and
+  check the mark, the hidden details and that the link has no mark. Checks: `pnpm test`:
+  `tests 124, pass 124, fail 0`; `pnpm run check` passes; `node scripts/self-test.mjs --e2e`
+  against a throwaway PocketBase from the binary: `✓ self-test passed: 25 steps, harness
+  0.5.0 in a throwaway project`, three runs in a row. One run before those ended with
+  `1 !== 0` from a step whose output was not kept; it did not come back, and is unexplained.
+  Handed back to the UX designer for the second review.

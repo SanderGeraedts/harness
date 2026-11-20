@@ -124,13 +124,16 @@ export const syncRegion = (page: Page) => page.getByRole('region', { name: t.syn
 /** The line of the sync status: a button, or a link once the sign-in ended. */
 export const syncLineOf = (page: Page) => syncRegion(page).locator('button[aria-expanded], a').first()
 
+/** The words of the line, without the mark that says it opens. */
+export const syncWordsOf = (page: Page) => syncLineOf(page).locator('span').first()
+
 /**
  * Waits until the backend holds exactly these items of the account, and the app says so. The
  * line alone could still read "All synced" from before a change that was made a moment ago.
  */
 export async function expectSynced(page: Page, account: Account, titles: string[]): Promise<void> {
   await expect.poll(() => titlesOnBackend(account), { timeout: 15_000 }).toEqual([...titles].sort())
-  await expect(syncLineOf(page)).toHaveText(t.syncAllSynced)
+  await expect(syncWordsOf(page)).toHaveText(t.syncAllSynced)
 }
 
 /** How many rows a table of the device's database holds. */

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { t } from '../../src/text'
-import { answerStorageRequest, backendUrl, makeAccount, PASSWORD, signIn, syncLineOf, syncRegion } from '../backend'
+import { answerStorageRequest, backendUrl, makeAccount, PASSWORD, signIn, syncWordsOf, syncRegion } from '../backend'
 
 // A production build that was given a backend address, signed out (D-0009): the sign-in
 // screen stands in place of every screen.
@@ -80,7 +80,7 @@ test('after signing in the screen of the address appears, with the focus on its 
   await expect(page.getByText(t.fetchingItems)).toBeVisible()
   await expect(page.getByText(t.noItems)).toBeVisible()
   await expect(page.getByText(t.fetchingItems)).toHaveCount(0)
-  await expect(syncLineOf(page)).toHaveText(t.syncAllSynced)
+  await expect(syncWordsOf(page)).toHaveText(t.syncAllSynced)
 
   const account_ = page.getByRole('link', { name: t.account })
   await expect(account_).toBeVisible()

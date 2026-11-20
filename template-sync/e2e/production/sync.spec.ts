@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { t } from '../../src/text'
-import { addItem, answerStorageRequest, backendUrl, expectSynced, makeAccount, openSignedIn, signIn, syncLineOf, syncRegion, titlesOnBackend } from '../backend'
+import { addItem, answerStorageRequest, backendUrl, expectSynced, makeAccount, openSignedIn, signIn, syncLineOf, syncWordsOf, syncRegion, titlesOnBackend } from '../backend'
 
 // Sync between two devices of one account, and what the sync status says (D-0007).
 
@@ -33,15 +33,16 @@ test('the sync line says offline, what waits, and that everything is synced agai
   const account = await makeAccount()
   await openSignedIn(page, account)
   const line = syncLineOf(page)
-  await expect(line).toHaveText(t.syncAllSynced)
+  const words = syncWordsOf(page)
+  await expect(words).toHaveText(t.syncAllSynced)
   await expect(line).toHaveAttribute('aria-expanded', 'false')
 
   await context.setOffline(true)
-  await expect(line).toHaveText(t.syncOfflineIdle)
+  await expect(words).toHaveText(t.syncOfflineIdle)
   await addItem(page, 'Made offline')
-  await expect(line).toHaveText(`${t.syncOffline}${t.joiner}${t.syncChanges(1)}`)
+  await expect(words).toHaveText(`${t.syncOffline}${t.joiner}${t.syncChanges(1)}`)
   await addItem(page, 'Also made offline')
-  await expect(line).toHaveText(`${t.syncOffline}${t.joiner}${t.syncChanges(2)}`)
+  await expect(words).toHaveText(`${t.syncOffline}${t.joiner}${t.syncChanges(2)}`)
 
   // The details: label above value, the offline line, and "Sync now" that can't run.
   await line.click()
@@ -55,12 +56,12 @@ test('the sync line says offline, what waits, and that everything is synced agai
   await expect(details.getByRole('button', { name: t.syncNow })).toBeDisabled()
   // Escape closes them, and the focus is on the line.
   await page.keyboard.press('Escape')
-  await expect(details).toHaveCount(0)
+  await expect(details).toBeHidden()
   await expect(line).toBeFocused()
   await expect(line).toHaveAttribute('aria-expanded', 'false')
 
   await context.setOffline(false)
-  await expect(line).toHaveText(t.syncAllSynced)
+  await expect(words).toHaveText(t.syncAllSynced)
   expect(await titlesOnBackend(account)).toEqual(['Also made offline', 'Made offline'])
 })
 
@@ -68,12 +69,13 @@ test('a sync that failed says so, with the last error in words, and "Sync now" t
   const account = await makeAccount()
   await openSignedIn(page, account)
   const line = syncLineOf(page)
-  await expect(line).toHaveText(t.syncAllSynced)
+  const words = syncWordsOf(page)
+  await expect(words).toHaveText(t.syncAllSynced)
 
   // The device is online, but the backend can't be reached.
   await page.route(`${backendUrl}/**`, (route) => route.abort())
   await addItem(page, 'Waits for the backend')
-  await expect(line).toHaveText(`${t.syncFailed}${t.joiner}${t.syncChanges(1)}`, { timeout: 15_000 })
+  await expect(words).toHaveText(`${t.syncFailed}${t.joiner}${t.syncChanges(1)}`, { timeout: 15_000 })
   await line.click()
   await expect(syncRegion(page).getByText(t.syncLastError)).toBeVisible()
   await expect(syncRegion(page).getByText(t.syncErrorNoConnection)).toBeVisible()
@@ -82,7 +84,7 @@ test('a sync that failed says so, with the last error in words, and "Sync now" t
 
   await page.unroute(`${backendUrl}/**`)
   await syncRegion(page).getByRole('button', { name: t.syncNow }).click()
-  await expect(line).toHaveText(t.syncAllSynced)
+  await expect(words).toHaveText(t.syncAllSynced)
   await expect(syncRegion(page).getByText(t.syncLastError)).toHaveCount(0)
   expect(await titlesOnBackend(account)).toEqual(['Waits for the backend'])
 })
@@ -93,11 +95,12 @@ test('the storage line shows only when the browser refused persistent storage', 
   await page.goto('/')
   await signIn(page, account)
   const line = syncLineOf(page)
-  await expect(line).toHaveText(t.syncStorage)
+  const words = syncWordsOf(page)
+  await expect(words).toHaveText(t.syncStorage)
   await line.click()
   await expect(syncRegion(page).getByText(t.syncStorageDetail)).toBeVisible()
   // It is the lowest rule: a change that waits is said first.
   await page.route(`${backendUrl}/**`, (route) => route.abort())
   await addItem(page, 'Waits')
-  await expect(line).toContainText(t.syncChanges(1))
+  await expect(words).toContainText(t.syncChanges(1))
 })

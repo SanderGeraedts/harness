@@ -12,6 +12,10 @@ import { bandClass, Button } from './ui'
 // src/sync/line.ts. `SyncStatusView` shows a given state (also on /design); `SyncStatus`
 // gathers the state of this device.
 
+// The band reaches the edges of the screen, where a focus ring drawn around it is cut off:
+// draw it inside, so all four sides show.
+const ringInside = 'focus-visible:-outline-offset-2'
+
 function Detail({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="mb-2">
@@ -60,8 +64,8 @@ export function SyncStatusView({
       </span>
       {line.rule === 'sign-in' ? (
         // Nothing to open: the one thing to do is to sign in again.
-        <Link to="/account" className={`${bandClass} block text-text underline decoration-accent decoration-2 underline-offset-4`}>
-          {line.text}
+        <Link to="/account" className={`${bandClass} ${ringInside} block text-text underline decoration-accent decoration-2 underline-offset-4`}>
+          <span>{line.text}</span>
         </Link>
       ) : (
         <button
@@ -70,13 +74,18 @@ export function SyncStatusView({
           aria-expanded={open}
           aria-controls={detailsId}
           onClick={() => setOpen(!open)}
-          className={`${bandClass} block w-full cursor-pointer text-left text-text`}
+          className={`${bandClass} ${ringInside} flex w-full cursor-pointer items-start justify-between gap-3 text-left text-text`}
         >
-          {line.text}
+          {/* The words wrap first; the mark that says the line opens never wraps under them. */}
+          <span className="min-w-0">{line.text}</span>
+          <span aria-hidden="true" className="shrink-0 text-muted">
+            {open ? '▴' : '▾'}
+          </span>
         </button>
       )}
-      {line.rule !== 'sign-in' && open && (
-        <div id={detailsId} className="border-t border-line px-4 pt-3 pb-4">
+      {/* Always in the page, hidden while closed, so the line's aria-controls points at something. */}
+      {line.rule !== 'sign-in' && (
+        <div id={detailsId} hidden={!open} className="border-t border-line px-4 pt-3 pb-4">
           <dl className="m-0">
             <Detail label={t.syncStatusLabel}>{syncSummary(view)}</Detail>
             <Detail label={t.syncLast}>{view.lastSyncedAt ? formatWhen(view.lastSyncedAt, language) : t.syncNever}</Detail>
