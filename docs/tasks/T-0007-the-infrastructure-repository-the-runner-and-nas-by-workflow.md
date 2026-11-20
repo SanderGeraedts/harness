@@ -258,6 +258,51 @@ On the home LAN, so this is not Done-when 4; it proves only that the remote path
 
 **Verdict: sent back to the developer** for defect 1. The pull request stays a draft.
 
+## Second run
+
+2026-11-20, tester, on `d8dbf2b` in a fresh worktree. **Passed.**
+
+- `pnpm install --frozen-lockfile`: "+ yaml 2.9.1 … Done in 323ms using pnpm v12.18.0".
+- `pnpm test`: "tests 190, pass 190, fail 0". `pnpm run check`: tasks, global decisions and
+  agents ✓.
+- `pnpm run self-test`: "✓ self-test passed: 28 steps, harness 0.6.0 in a throwaway
+  project"; `node scripts/self-test.mjs --e2e`: "✓ self-test passed: 30 steps".
+- **Defect 1, fixed.** With the old `lib/infra/callers.mjs` (from `3b1889f`) put back,
+  `node --test test/infra.test.mjs` gives "pass 53, fail 3", among them "project-up.yml
+  (Prod) isn't valid YAML"; with the new one, "pass 56, fail 0". A fresh clone of the
+  infrastructure repository (main at its PR #5, pinned to `8d12194`): all four workflows
+  parse with no error or warning. Its runs since #5 are one `nas` and one `check`, both
+  success; no failed workflow-file run, and no push run at all.
+- **Defect 2, fixed.** `.claude/settings.json` and `requiredSettings` ask before
+  `*confirmed=true*` for Bash and PowerShell, next to `*--confirmed*`; `rules/AGENTS.md`
+  says never to start an infrastructure workflow with `gh workflow run` directly; self-test
+  step 17 checks the four rules.
+- **Defect 3, fixed.** `infra runner status` on a repository that can't be seen: "✗ only the
+  Engineer may look at the infrastructure (G-0026): … can't see …", exit 1.
+- **The failed `nas` run at 18:56 on the old pin** was the first run's `no.such_method`
+  test: its log has `NAS_METHOD: no.such_method`, "harness nas: exit 1", and a result that
+  decodes to "no.such_method failed: Method does not exist".
+- **Live, `TRUENAS_*` unset (count 0), on the home LAN:** `nas --remote core.ping`:
+  `"pong"`, exit 0; `nas --remote system.info`: TrueNAS 25.10.8, 16 cores; `infra check`:
+  exit 0, the four secrets ✓, `GHCR_PULL_TOKEN` not there yet, configuration ✓, "core.ping
+  gave "pong""; `infra runner status`: "harness-nas: online (self-hosted, Linux, X64,
+  harness-nas)"; `nas --remote pool.dataset.delete '["x"]'`: exit 2 with the "is
+  destructive" message, and `'[oops'` exit 1, with the newest run id unchanged (no run
+  started); `infra init --harness-ref 8d12194…` a second time: "✓ files: nothing changed",
+  environment, four secrets and runner ✓, exit 0.
+- **Leaks:** the PR diff and the regenerated repository hold neither the NAS's host, host
+  name, fingerprint (with or without colons), an IPv4 address nor the infrastructure
+  repository's name (`/mnt/` and `.ts.net` only in Log and Test lines that name the
+  search). The five newest run logs: the key only as `***`, no registration or GitHub
+  token, no host, host name or fingerprint. `app.config` of the runner app: image
+  `actions-runner:2.338.2`, no `RUNNER_TOKEN` in its environment, one volume, no socket, not
+  privileged.
+- Not blocking: the PR body's "No change to `.claude/`" line predates the fix; its later
+  section says plainly that `.claude/settings.json` changes.
+
+**Verdict: passed.** Done-when 1, 2 (up to the re-pin to the tag), 3 and 5 hold; 4 needs a
+machine off the home network, and 6 is the tag after the merge.
+
 # Log
 
 One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
@@ -341,3 +386,10 @@ One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
 - 2026-11-20 developer: Remaining: a new test pass; after `v0.6.0` is tagged, `harness infra
   init` once more to pin the infrastructure repository to the tag; Done-when 4 from a
   machine off the home network; the tag itself (Done-when 6).
+- 2026-11-20 tester: passed (second run, see *Test*): the three defects are fixed, the new
+  YAML test fails on the old generator, every check and live item holds with no `TRUENAS_*`
+  set, and nothing leaked. After the merge the tester tags `v0.6.0` and re-pins the
+  infrastructure repository to it.
+- 2026-11-20 tester: Remaining: Done-when 4, `harness nas --remote core.ping` from a machine
+  off the home network with no `TRUENAS_*` variable, for the Engineer; and recording here
+  the tag `v0.6.0` and the re-pin to it (done by the tester right after the merge).
