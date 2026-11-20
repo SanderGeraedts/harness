@@ -2,11 +2,11 @@
 id: T-0008
 title: "Give the template a backend, sign-in and sync, chosen with create --sync"
 description: "harness create --sync (the default) adds a PocketBase backend folder with its publish workflow, a sign-in screen and the sync engine to the new project; --no-sync leaves the app local-only; the backend image and sync are tested in the harness's CI against a throwaway backend."
-status: Doing               # Open | Doing | Done | Dropped
+status: Done                # Open | Doing | Done | Dropped
 depends_on: [T-0003]        # tasks that must be Done first
 decisions: [G-0011, G-0015, G-0017, G-0018, G-0019, G-0020, G-0021, G-0026]
 raised_on: 2026-11-20
-done_on: ""
+done_on: 2026-11-20
 result: ["https://github.com/SanderGeraedts/harness/pull/13"]                  # PR URLs
 ---
 
@@ -654,6 +654,50 @@ contexts as two devices of one account, against the throwaway backend:
 2. Give the item form the backend's limits (title 500, note 20,000), with words in `text.ts`
    that the UX designer agrees, so the app can't make a change the backend refuses.
 
+## Second run
+
+Tester, 2026-11-20, on commit `e7825b7`, in a fresh worktree with `pnpm install
+--frozen-lockfile`; backends again the PocketBase 0.40.6 binary on an empty database.
+
+**Verdict: passed.** Both defects are fixed, and nothing that passed before broke.
+
+- `pnpm test`: `ℹ tests 125`, `ℹ pass 125`, `ℹ fail 0`.
+- `pnpm run check`: `✓ tasks: 9 tasks, index in step`, `✓ global decisions: 29 records,
+  index complete`, `✓ agents: 4 definitions`.
+- `pnpm run self-test`: `✓ self-test passed: 23 steps, harness 0.5.0 in a throwaway project`.
+- `BACKEND_TEST_URL=… node scripts/self-test.mjs --e2e`, three times, each on a fresh backend:
+  all three `✓ self-test passed: 25 steps, harness 0.5.0 in a throwaway project` (*Done when*
+  3).
+- The previously flaky spec, in a project created from this commit,
+  `playwright test --project=phone e2e/sync-off.spec.ts --repeat-each=30 --workers=5`:
+  `90 passed (1.1m)`; the first run's 2 of 30 failures are gone.
+- In CI on `e7825b7`: `checks / checks`, `template-e2e` and `template-backend / image` green;
+  `template-backend / publish` skipped, as it must be on a pull request.
+- **The stuck outbox, again:** typing 501 characters in the title leaves 500 in the field; a
+  501-character value put in past `maxlength` gives "Keep the title to 500 characters." and
+  the outbox stays at 0; a 600-character paste is kept to 500, saves, and syncs together with
+  the next item (`outbox after sync: 0`). Nothing gets stuck.
+- **My other attempts, repeated** in that project: two devices with offline edits, a delete
+  against an edit, the server going down mid-sync, the busy states and "Fetching your
+  items…", a sign-in that ended offline, and a wrong password twice: all pass again (`8
+  passed`).
+- **Publishing as its own job:** `image` has `contents: read` and a checkout with
+  `persist-credentials: false`; `publish` alone has `packages: write`, needs `image`, runs
+  only when `image` decided so on the default branch outside a pull request, checks nothing
+  out and loads the proven image from the artifact. That the calling job must still allow
+  `packages: write` is acceptable: it is a ceiling, and the job that runs a pull request's
+  code gets only `contents: read`.
+- **The two new sentences, looked at as the UX designer would**, at 320px in light and dark:
+  they appear where "Give the item a title." does, above "Save", in the same look, fit the
+  width (`320/320`), and say what to do. They need no review before merging: a user only sees
+  them for a value that got past the field's limit. Two small points for the designer
+  later, not blocking: the note's sentence prints "20000" without the separator a reader
+  expects in the project's language, and a pasted note over the limit is cut off without a
+  word.
+
+The open question of a change the backend refuses for good (the developer's last Log line)
+remains the architect's; the form's limits close the one way found to make one.
+
 # Log
 
 One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
@@ -781,3 +825,8 @@ One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
   failed". Whether such a row is set aside, shown to the user or dropped is a decision; it
   is not built here. Remaining: the new `publish` job, like the step before it, has never
   run; it runs on a project's default branch only, with the live proof of T-0004.
+- 2026-11-20 tester: passed, on commit `e7825b7`. `self-test --e2e` passed three runs in a
+  row, the `/design` test 90 of 90 with `--repeat-each=30`, and a too-long title is now
+  refused by the form so nothing gets stuck (*Test*, *Second run*). The publish job and the
+  live site's headers are proven with T-0004; the refused-change policy is the architect's.
+  Status Done; the pull request is marked ready, and `v0.5.0` is tagged on the green merge.
