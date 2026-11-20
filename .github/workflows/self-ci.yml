@@ -35,10 +35,12 @@ jobs:
       artifacts-only-on-failure: true
 
   # The template's end-to-end tests: the self-test once more with --e2e, which also runs
-  # Playwright in the project `harness create` makes. Its own job, so the checks stay quick.
+  # Playwright in the two projects `harness create` makes, with and without sync. The one
+  # that syncs builds its backend image and starts it as a throwaway backend (Docker), for
+  # the tests of the sign-in and sync. Its own job, so the checks stay quick.
   template-e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
@@ -48,3 +50,14 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: node scripts/self-test.mjs --e2e
+
+  # The template's backend (G-0019): the project `harness create --sync` makes, through the
+  # reusable backend workflow a project calls. That builds its image, starts it on an empty
+  # database, and runs its smoke test and the app's backend tests against it. Never
+  # published: it is nobody's backend.
+  template-backend:
+    uses: ./.github/workflows/backend.yml
+    with:
+      setup: node scripts/make-project.mjs /tmp/harness-template-backend/spun-up --sync
+      project-directory: /tmp/harness-template-backend/spun-up
+      publish: false

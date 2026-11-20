@@ -1,6 +1,6 @@
 {
   "name": "@sandergeraedts/harness",
-  "version": "0.3.0",
+  "version": "0.5.0",
   "description": "An AI-first way of working: decisions, tasks, an agent team and workflows that projects install",
   "license": "MIT",
   "type": "module",
@@ -22,7 +22,8 @@
     "agents",
     "templates",
     "hooks",
-    "template"
+    "template",
+    "template-sync"
   ],
   "scripts": {
     "test": "node --test \"test/*.test.mjs\"",

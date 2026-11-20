@@ -5,8 +5,10 @@ import { after, describe, it } from 'node:test';
 import {
   DEFAULTS,
   FONTS,
+  OVERLAY_MANIFEST,
   REQUIRED_CHECK,
   TEMPLATE_DIR,
+  TEMPLATE_SYNC_DIR,
   copyTemplate,
   create,
   describeInAgents,
@@ -22,6 +24,7 @@ import {
   unfilled,
   unique,
   waitForCi,
+  yesOrNo,
 } from '../lib/create.mjs';
 import { read } from '../lib/frontmatter.mjs';
 import { HARNESS_ROOT } from '../lib/paths.mjs';
@@ -47,6 +50,19 @@ describe('create: options', () => {
       name: 'my-project',
     });
     assert.deepEqual(parseArgs(['a']), { engineers: [], visibility: 'private', github: true, name: 'a' });
+  });
+
+  it('takes --sync and --no-sync, and syncs when neither is given', () => {
+    assert.equal(parseArgs(['a', '--sync']).sync, true);
+    assert.equal(parseArgs(['a', '--no-sync']).sync, false);
+    assert.equal(parseArgs(['a']).sync, undefined, 'not given: the question is still to be asked');
+    assert.equal(options().sync, true);
+    assert.equal(options({ sync: false }).sync, false);
+    // The answer typed at "Sync between devices? [yes]".
+    for (const yes of ['yes', 'Y', ' Yes ']) assert.equal(options({ sync: yes }).sync, true, yes);
+    for (const no of ['no', 'N']) assert.equal(options({ sync: no }).sync, false, no);
+    assert.throws(() => options({ sync: 'maybe' }), /"maybe" isn't yes or no/);
+    assert.equal(yesOrNo(''), undefined);
   });
 
   it('refuses an unknown option, a missing value and a second name', () => {
@@ -108,7 +124,7 @@ describe('create: placeholders', () => {
 
   it('copies the template with every placeholder filled and the dot files named', () => {
     const dir = join(tempDir(), 'out');
-    const o = options({ accent: '#aa3366', font: 'serif', language: 'nl', title: 'Tom & Jo' });
+    const o = options({ accent: '#aa3366', font: 'serif', language: 'nl', title: 'Tom & Jo', sync: false });
     const files = copyTemplate(dir, o, { date: '2026-01-02' });
     const values = placeholders(o, '2026-01-02');
     for (const f of files) assert.deepEqual(unfilled(readFileSync(join(dir, f), 'utf8'), values), [], f);
@@ -127,11 +143,73 @@ describe('create: placeholders', () => {
     assert.match(read(join(dir, 'docs/decisions/D-0001-what-this-project-is-for.md')), /^date: 2026-01-02$/m);
     assert.match(read(join(dir, 'docs/decisions/D-0001-what-this-project-is-for.md')), /^> Keep a list\.$/m);
     // Another language than English gets the task to translate; English doesn't.
-    assert.ok(existsSync(join(dir, 'docs/tasks/T-0003-translate-the-interface.md')));
+    assert.ok(existsSync(join(dir, 'docs/tasks/T-0002-translate-the-interface.md')));
+    const english = join(tempDir(), 'out');
+    copyTemplate(english, options({ sync: false }));
+    assert.deepEqual(readdirSync(join(english, 'docs/tasks')), ['T-0001-replace-the-example-with-the-first-real-screens.md']);
+  });
+
+  it('without sync: no backend, no sign-in, no backend workflow and no backend client', () => {
+    const dir = join(tempDir(), 'out');
+    const files = copyTemplate(dir, options({ sync: false }));
+    for (const f of ['backend', 'src/auth', '.github/workflows/backend.yml', 'src/sync/engine.ts', 'e2e/production', OVERLAY_MANIFEST])
+      assert.ok(!existsSync(join(dir, f)), `${f} should not be there`);
+    assert.ok(!files.some((f) => f.startsWith('backend/') || f.startsWith('src/auth/')));
+    const pkg = JSON.parse(read(join(dir, 'package.json')));
+    assert.ok(!('pocketbase' in pkg.dependencies) && !('pocketbase' in pkg.devDependencies));
+    assert.doesNotMatch(read(join(dir, 'pnpm-lock.yaml')), /pocketbase/);
+    assert.doesNotMatch(read(join(dir, '.github/workflows/auto-merge.yml')), /backend/);
+    // The answer is recorded in the project's decisions.
+    assert.match(read(join(dir, 'docs/decisions/D-0002-the-app-is-local-first-and-ready-to-sync.md')), /answered no\n\(`--no-sync`\)/);
+    assert.equal(files.filter((f) => /^docs\/decisions\/D-\d{4}-/.test(f)).length, 5);
+  });
+
+  it('with sync, the default: the overlay is copied over the template, and what it replaces is gone', () => {
+    const dir = join(tempDir(), 'out');
+    const o = options({ language: 'nl', title: 'Tom & Jo' });
+    const files = copyTemplate(dir, o, { date: '2026-01-02' });
+    const values = placeholders(o, '2026-01-02');
+    for (const f of files) assert.deepEqual(unfilled(readFileSync(join(dir, f), 'utf8'), values), [], f);
+    for (const f of [
+      'backend/Dockerfile', 'backend/funnel.json', 'backend/smoke-test.sh', 'backend/throwaway.sh', 'backend/README.md',
+      'backend/pb_migrations/1700000000_initial.js', 'backend/pb_hooks/newest_wins.pb.js', 'backend/pb_hooks/slugs.pb.js',
+      '.github/workflows/backend.yml', '.github/workflows/ci.yml', 'src/auth/auth.ts', 'src/sync/engine.ts', 'src/sync/start.ts',
+      'src/routes/AccountPage.tsx', 'e2e/production/sync.spec.ts', 'e2e/items.spec.ts', 'src/db/write.ts', 'src/headers.ts',
+    ])
+      assert.ok(files.includes(f), f);
+    // Nothing of the overlay's own bookkeeping is left, under either name.
+    assert.ok(!files.some((f) => f.endsWith('overlay.json')), 'the manifest is not part of a project');
+    assert.ok(!readdirSync(dir).some((e) => e.startsWith('_')), 'no _name is left at the top');
+    // What the manifest removes: the template's D-0002, and its translate task's number.
+    assert.deepEqual(
+      files.filter((f) => /^docs\/(decisions\/D-0002|tasks\/T-)/.test(f)).sort(),
+      [
+        'docs/decisions/D-0002-the-app-is-local-first-and-syncs-with-its-backend.md',
+        'docs/tasks/T-0001-replace-the-example-with-the-first-real-screens.md',
+        'docs/tasks/T-0002-run-the-backend-and-make-the-first-account.md',
+        'docs/tasks/T-0003-translate-the-interface.md',
+      ],
+    );
+    assert.match(read(join(dir, 'docs/tasks/T-0003-translate-the-interface.md')), /^id: T-0003$/m);
     const english = join(tempDir(), 'out');
     copyTemplate(english, options());
     assert.ok(!existsSync(join(english, 'docs/tasks/T-0003-translate-the-interface.md')));
-    assert.ok(existsSync(join(english, 'docs/tasks/T-0002-give-the-project-hosting-a-backend-and-sync.md')));
+    // Filled in where the overlay names the project.
+    assert.match(read(join(dir, 'src/sync/state.ts')), /const PREFIX = 'my-project:'/);
+    assert.match(read(join(dir, 'e2e/backend.ts')), /DB_NAME = 'my-project'/);
+    assert.match(read(join(dir, 'src/text.ts')), /appTitle: "Tom & Jo" as string/);
+    assert.match(read(join(dir, '.github/workflows/backend.yml')), /uses: SanderGeraedts\/harness\/\.github\/workflows\/backend\.yml@v1\.2\.3\n/);
+    assert.match(read(join(dir, '.github/workflows/auto-merge.yml')), /auto-merge\.yml@v1\.2\.3\n {4}with:\n {6}backend-workflow: backend\.yml\n {6}backend-paths: /);
+    assert.equal(JSON.parse(read(join(dir, 'package.json'))).dependencies.pocketbase, JSON.parse(read(join(TEMPLATE_SYNC_DIR, 'package.json'))).dependencies.pocketbase);
+    assert.match(read(join(dir, 'pnpm-lock.yaml')), /pocketbase@/);
+    assert.match(read(join(dir, 'docs/decisions/D-0002-the-app-is-local-first-and-syncs-with-its-backend.md')), /answered yes \(`--sync`, the default\)/);
+    assert.equal(files.filter((f) => /^docs\/decisions\/D-\d{4}-/.test(f)).length, 10);
+  });
+
+  it('refuses an overlay that removes a file the template does not have', () => {
+    const overlay = tempDir();
+    write(overlay, OVERLAY_MANIFEST, JSON.stringify({ remove: ['docs/no-such-file.md'] }));
+    assert.throws(() => copyTemplate(join(tempDir(), 'out'), options(), { overlayDir: overlay }), /removes docs\/no-such-file\.md, which the template doesn't have/);
   });
 
   it('refuses a folder that already holds something', () => {
@@ -146,6 +224,11 @@ describe('create: placeholders', () => {
     assert.match(text, /^\*\*My project\.\*\* Keep a list\.$/m);
     assert.doesNotMatch(text, /<One or two sentences/);
     assert.match(text, /## Project rules\n[\s\S]*src\/db\/write\.ts[\s\S]*\(D-0005\)/);
+    // A project that syncs also gets the rules about its backend; one that doesn't, doesn't.
+    assert.match(text, /Only production reaches the backend[\s\S]*\(D-0009\)[\s\S]*pnpm run test:backend/);
+    const local = describeInAgents(read(join(HARNESS_ROOT, 'templates', 'AGENTS.md')), options({ sync: false }));
+    assert.doesNotMatch(local, /backend/);
+    assert.match(local, /\(D-0005\)/);
   });
 });
 
@@ -163,6 +246,65 @@ describe('create: the template', () => {
     assert.equal(JSON.parse(read(join(TEMPLATE_DIR, 'package.json'))).packageManager, own.packageManager);
     const index = read(join(TEMPLATE_DIR, 'docs/decisions/index.md'));
     for (const f of files.filter((x) => /^docs\/decisions\/D-\d{4}-/.test(x))) assert.ok(index.includes(`(${f.split('/').pop()})`), f);
+  });
+});
+
+describe('create: the overlay for a project that syncs', () => {
+  const base = walk(TEMPLATE_DIR);
+  const overlay = walk(TEMPLATE_SYNC_DIR);
+  const json = (dir, rel) => JSON.parse(read(join(dir, rel)));
+
+  it('is part of the package, and carries nothing built', () => {
+    assert.ok(json(HARNESS_ROOT, 'package.json').files.includes('template-sync'));
+    assert.ok(!overlay.some((f) => /(^|\/)(node_modules|dist[^/]*)\//.test(f)), 'no node_modules or dist');
+  });
+
+  it("its package.json is the template's, plus the backend's client and the script that tests against a backend", () => {
+    const own = json(TEMPLATE_SYNC_DIR, 'package.json');
+    const { pocketbase, ...dependencies } = own.dependencies;
+    const { 'test:backend': testBackend, ...scripts } = own.scripts;
+    assert.ok(pocketbase && testBackend);
+    assert.deepEqual({ ...own, dependencies, scripts }, json(TEMPLATE_DIR, 'package.json'));
+  });
+
+  it('its manifest removes only files the template has, and its decision index lists the records of the result', () => {
+    const { remove } = json(TEMPLATE_SYNC_DIR, OVERLAY_MANIFEST);
+    for (const f of remove) assert.ok(base.includes(f), `${f} is not in the template`);
+    const result = [...new Set([...base, ...overlay])].filter((f) => !remove.includes(f));
+    const records = result.filter((f) => /^docs\/decisions\/D-\d{4}-/.test(f));
+    const index = read(join(TEMPLATE_SYNC_DIR, 'docs/decisions/index.md'));
+    for (const f of records) assert.ok(index.includes(`(${f.split('/').pop()})`), f);
+    assert.equal(index.match(/^- \[D-/gm).length, records.length, 'the index lists nothing else');
+    // One record per number.
+    assert.equal(new Set(records.map((f) => f.match(/D-\d{4}/)[0])).size, records.length);
+  });
+
+  it('opens only the paths the app needs to the internet', () => {
+    const paths = json(TEMPLATE_SYNC_DIR, 'backend/funnel.json');
+    assert.deepEqual(paths, ['/api/health', '/api/collections/users/', '/api/collections/items/']);
+    for (const path of paths) assert.ok(path.startsWith('/api/') && path !== '/api/' && !path.includes('_superusers'), path);
+  });
+
+  it('names no address, network, storage path or key, and neither does the template (G-0019)', () => {
+    // What may be written: this machine, for tests, and names that can never be real.
+    const allowed = /127\.0\.0\.1|0\.0\.0\.0/g;
+    for (const [dir, list] of [[TEMPLATE_DIR, base], [TEMPLATE_SYNC_DIR, overlay]]) {
+      for (const f of list.filter((x) => !x.endsWith('pnpm-lock.yaml'))) {
+        const text = read(join(dir, f)).replace(allowed, '');
+        for (const [what, pattern] of [
+          ['an IP address', /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/],
+          ['a tailnet name', /[\w-]+\.ts\.net/],
+          ['a storage path', /\/mnt\//],
+          ['a key', /tskey-|ghp_|nfp_/],
+        ])
+          assert.doesNotMatch(text, pattern, `${f} holds ${what}`);
+        for (const host of text.match(/https?:\/\/[^\s"'`)<>\\]+/g) ?? []) {
+          const name = host.replace(/^https?:\/\//, '').match(/^[\w.-]*/)[0].replace(/\.$/, '');
+          // www.w3.org is the name of the SVG format, in the icon script.
+          assert.match(name, /^(localhost|github\.com|www\.w3\.org|.*\.example|.*\.invalid|)$/, `${f} names the host ${name}`);
+        }
+      }
+    }
   });
 });
 

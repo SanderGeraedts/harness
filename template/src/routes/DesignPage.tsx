@@ -1,4 +1,4 @@
-import { AccentHeading, Button, Card, Field, inputClass, linkClass, StatusBadge } from '../components/ui'
+import { AccentHeading, Band, Button, Card, Field, inputClass, linkClass, StatusBadge } from '../components/ui'
 import { ITEM_STATUSES } from '../db/db'
 import { t } from '../text'
 
@@ -61,6 +61,10 @@ export function DesignPage() {
             </div>
             <p className="mt-1 mb-0 text-muted">{t.note}</p>
           </Card>
+        </div>
+        <div className="mt-4 grid gap-2">
+          <Band>{t.demoBanner}</Band>
+          <Band>{t.offlineOnly}</Band>
         </div>
         <div className="mt-4">
           <Field label={t.title} htmlFor="design-title" hint={t.noteHint}>

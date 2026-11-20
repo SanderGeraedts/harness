@@ -1,0 +1,37 @@
+# The backend's image (D-0008), through the harness's reusable workflow: build it, start it
+# on an empty database, run backend/smoke-test.sh and the app's backend tests against it,
+# and, on main only, publish it as ghcr.io/<owner>/<repository>-backend, :stable and
+# :sha-<commit>. Keep the ref the same as the harness dependency in package.json (G-0004).
+#
+# It runs for every pull request that touches the backend or the code that talks to it. A
+# merge made by the auto-merge workflow starts no push workflows, so that workflow starts
+# this one on main after merging a backend change (workflow_dispatch).
+name: Backend
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - "src/sync/**"
+      - "src/auth/**"
+      - "src/db/**"
+      - ".github/workflows/backend.yml"
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+# One publish at a time, in the order of the pushes.
+concurrency:
+  group: backend-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  image:
+    uses: SanderGeraedts/harness/.github/workflows/backend.yml@__HARNESS_REF__

@@ -17,7 +17,8 @@ itself. Humans decide what can't be undone or costs money.
 | [templates/](templates/) | decision, question, task and lessons templates, and a project's thin `AGENTS.md` and `CLAUDE.md` |
 | `bin/`, `lib/` | the `harness` command |
 | [template/](template/) | the app a new project starts from, for `harness create` |
-| [.github/workflows/](.github/workflows/) | reusable `ci.yml` and `auto-merge.yml` |
+| [template-sync/](template-sync/) | what a project that syncs gets on top of it: a backend, a sign-in and the sync engine |
+| [.github/workflows/](.github/workflows/) | reusable `ci.yml`, `auto-merge.yml` and `backend.yml` |
 
 ## Roles
 
@@ -44,7 +45,7 @@ Every task goes through a pipeline, and each role writes its result in the task 
 The project is an existing git repository with a `package.json`, using pnpm.
 
 ```sh
-pnpm add -D github:SanderGeraedts/harness#v0.3.0
+pnpm add -D github:SanderGeraedts/harness#v0.5.0
 pnpm exec harness init <engineer-github-login>...
 pnpm exec harness check
 ```
@@ -84,7 +85,7 @@ concurrency:
 
 jobs:
   checks:
-    uses: SanderGeraedts/harness/.github/workflows/ci.yml@v0.3.0
+    uses: SanderGeraedts/harness/.github/workflows/ci.yml@v0.5.0
     # with:
     #   checks: |
     #     pnpm run typecheck
@@ -119,7 +120,7 @@ permissions:
 
 jobs:
   merge:
-    uses: SanderGeraedts/harness/.github/workflows/auto-merge.yml@v0.3.0
+    uses: SanderGeraedts/harness/.github/workflows/auto-merge.yml@v0.5.0
     # with:
     #   ci-workflow: ci.yml
     #   backend-workflow: backend.yml
@@ -153,6 +154,43 @@ Starting a workflow needs the `actions: write` permission in the caller, and the
 workflow needs a `workflow_dispatch:` trigger. When CI can't be started the merge still
 stands, and the run shows a warning that says what is missing.
 
+A project that syncs has a third workflow, `.github/workflows/backend.yml`, which `harness
+create --sync` writes. It calls the reusable backend workflow:
+
+```yaml
+name: Backend
+
+on:
+  pull_request:
+    paths: ["backend/**", ".github/workflows/backend.yml"]
+  push:
+    branches: [main]
+    paths: ["backend/**", ".github/workflows/backend.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    uses: SanderGeraedts/harness/.github/workflows/backend.yml@v0.5.0
+```
+
+It builds the image from the project's `backend/` folder, starts it on an empty database
+(`backend/throwaway.sh`), runs `backend/smoke-test.sh` and the project's backend tests
+against it, and, on the default branch only, publishes it as
+`ghcr.io/<owner>/<repository>-backend`, tagged `:stable` and `:sha-<commit>`. The auto-merge
+workflow starts it after merging a backend change (`backend-workflow`, `backend-paths`),
+which is why it needs `workflow_dispatch:`. Its inputs, all optional:
+
+| Input | Default | What |
+| --- | --- | --- |
+| `node-version-file` | `.nvmrc` | the file that names the Node version |
+| `tests` | `pnpm run test:backend` | the project's tests against the throwaway backend, as a shell script; they get its address in `BACKEND_TEST_URL` |
+| `publish` | `true` | `false` never publishes the image |
+| `setup`, `project-directory` | none, `.` | only the harness itself uses these, to test the template |
+
 Once CI has run, protect the default branch. Agents do this themselves (G-0025). The check
 name is the caller's job name, then the reusable workflow's:
 
@@ -167,7 +205,7 @@ when the checks passed.
 ## Adopt, in a repository that already has registries
 
 ```sh
-pnpm add -D github:SanderGeraedts/harness#v0.3.0
+pnpm add -D github:SanderGeraedts/harness#v0.5.0
 pnpm exec harness adopt
 pnpm exec harness adopt --write <engineer-github-login>...
 pnpm exec harness sync
@@ -236,8 +274,9 @@ pnpm exec harness create my-project \
 Run inside a git repository, as here, it puts the new project next to that repository
 (`../my-project`, seen from its root) and never inside it. `--dir` says where else.
 
-In a terminal it asks for the purpose, the look and the language that weren't given as
-flags; elsewhere the flags are all there is, and only `--purpose` is required.
+In a terminal it asks for the purpose, the look, the language and whether the app syncs
+("Sync between devices? [yes]") when they weren't given as flags; elsewhere the flags are
+all there is, and only `--purpose` is required.
 
 | Option | What |
 | --- | --- |
@@ -247,6 +286,7 @@ flags; elsewhere the flags are all there is, and only `--purpose` is required.
 | `--accent <#rrggbb>` | the accent colour; default `#2f6fed`. The text colour on it is worked out for contrast |
 | `--font <name>` | `system`, `serif`, `rounded` or `mono`: font stacks that need no font files; default `system` |
 | `--language <code>` | the interface language, such as `en` or `nl`; default `en` |
+| `--sync`, `--no-sync` | whether the app syncs between devices (G-0020); default `--sync`. See *With and without sync* |
 | `--engineer <login>` | a GitHub login of an Engineer of the new project; repeat for more |
 | `--private`, `--public` | the repository's visibility; default private |
 | `--git-name <name>`, `--git-email <address>` | the author of the first commit, also set as the new repository's own `user.name` and `user.email`. Default: whatever git is configured with on this machine |
@@ -265,12 +305,13 @@ rule is:
 
 What it does, in order:
 
-1. Copies the template and fills in the name, title, purpose, look and language.
+1. Copies the template, and for a project that syncs the overlay over it, and fills in the
+   name, title, purpose, look and language.
 2. Installs the dependencies and the harness, then runs `harness init` with the Engineers
    and `harness sync`.
-3. Records the first decisions (`D-0001` purpose, `D-0002` local-first and ready to sync,
-   `D-0003` look, `D-0004` language, `D-0005` slug addresses) and the first tasks, and runs
-   `harness check`.
+3. Records the first decisions (`D-0001` purpose, `D-0002` local-first, with or without
+   sync, `D-0003` look, `D-0004` language, `D-0005` slug addresses, and for a project that
+   syncs `D-0006` to `D-0010`) and the first tasks, and runs `harness check`.
 4. Makes the first commit on `main`. With `--no-github` it stops here. A run that fails
    before this point removes what it put in the folder, so the same command can be run
    again.
@@ -294,26 +335,65 @@ GitHub offers rulesets on public repositories, and on private ones only on a pai
 Where it refuses, the project is still created and its CI runs, and the command ends with a
 `Remaining:` line: the default branch is not protected until `harness protect` succeeds.
 
-The app it creates is local-first and ready to sync: Dexie with `updatedAt`, tombstones and
-an outbox, one write API, slug addresses, seeded demo data outside production, and no
-backend. Hosting, the backend and sync are not created yet.
+### With and without sync
 
-The template is tested with the harness: `pnpm run self-test` creates a project from it and
-runs its type-check, unit tests and build; CI also runs its end-to-end tests
-(`node scripts/self-test.mjs --e2e`). After changing `template/package.json`, run
-`node scripts/template-lock.mjs` to refresh the lockfile new projects start from.
+Either way the app is local-first: Dexie with `updatedAt`, tombstones and an outbox, one
+write API, slug addresses, and seeded demo data outside production.
+
+**With `--sync`** (the default) the project also gets, from [template-sync/](template-sync/):
+
+- `backend/`: a PocketBase image with the schema and hooks baked in, a smoke test, a script
+  that starts a throwaway backend for tests, and `funnel.json`, the paths the internet may
+  reach;
+- the `backend` workflow, and the auto-merge caller that starts it after a backend change;
+- a sign-in screen, an account screen and a session, in `src/auth/`;
+- the sync engine, in `src/sync/`, and a sync status under the header.
+
+Sync, and with it the sign-in, exists only in a production build that was given the
+backend's address (`BACKEND_URL`, G-0019). Every other build runs on demo data, shows no
+sign-in and holds neither the address nor the backend's client. What the template decides
+as a starting point is recorded in the new project as its own decisions, which it can
+replace: only a signed-in account reads and writes, and only its own records, with sign-up
+closed (`D-0006`); the newest change to a record wins, and a delete is a tombstone
+(`D-0007`); the backend changes only by migrations, and nothing about where it runs is in
+the repository (`D-0008`); only the user's own sign-out clears the device (`D-0009`); and
+after a sign-in ended only the same account signs in again (`D-0010`).
+
+**With `--no-sync`** the data stays on one device: no `backend/`, no `src/auth/`, no backend
+workflow and no backend client among the dependencies.
+
+For both, the content security policy is not in `netlify.toml`: the build writes it to
+`dist/_headers`, so that a production build can add the backend's origin without the address
+being in the repository.
+
+Hosting and a running backend are not created yet: a project that syncs publishes its
+backend image, and its first tasks say what remains.
+
+The template is tested with the harness: `pnpm run self-test` creates a project of each kind
+and runs its type-check, unit tests and build; CI also runs their end-to-end tests
+(`node scripts/self-test.mjs --e2e`), and builds the backend image and runs its smoke test
+and the app's backend tests through the reusable backend workflow. After changing
+`template/package.json` or `template-sync/package.json`, run `node scripts/template-lock.mjs`
+to refresh the lockfiles new projects start from. `node scripts/make-project.mjs <dir>
+[--no-sync]` creates a project from the checkout to try by hand.
 
 ## Update
 
 ```sh
-pnpm add -D github:SanderGeraedts/harness#v0.3.0
+pnpm add -D github:SanderGeraedts/harness#v0.5.0
 pnpm exec harness sync
-pnpm exec harness changes v0.2.0 v0.3.0
+pnpm exec harness changes v0.4.0 v0.5.0
 ```
 
 Bump the tag in both workflows in the same pull request, and put the output of `changes` in
 its description: the global decisions that were added, changed or replaced. Per decision the
 project's architect opens a task to conform or records an overruling decision.
+
+From 0.4.0 to 0.5.0 nothing changes for a project that exists: `sync` writes what it wrote
+before, the two reusable workflows are as they were, and no global decision was added,
+changed or replaced. New are `harness create --sync | --no-sync` and the reusable
+`backend.yml`. An existing project doesn't gain sync by updating; `src/sync/README.md` in a
+project without it says what adding it takes.
 
 From 0.1.0 to 0.2.0, also in that pull request:
 
