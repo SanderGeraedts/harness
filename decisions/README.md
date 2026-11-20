@@ -40,6 +40,10 @@ without changing what was decided (G-0003). To change a global decision:
 
 Ids are never reused.
 
+A project decision that a global one covers is replaced by it: its `replaced_by` may name a
+global id (`replaced_by: [G-0016]`), and `harness check` fails when that id isn't in the
+installed harness.
+
 ## Front matter
 
 | Field | Meaning |
