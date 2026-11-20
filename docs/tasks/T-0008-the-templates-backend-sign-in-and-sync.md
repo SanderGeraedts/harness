@@ -477,6 +477,37 @@ project without sync sees.
   online; `/design` shows the busy form and the waiting line, and the rest is the tester's
   (*Done when* 8 to 11).
 
+## Second review after building
+
+UX designer, 2026-11-20, on commit `20cbdfe`. **Verdict: matches the design; passed on to
+the tester.**
+
+Looked at: the fourteen new screenshots of the sync line at 320px, seven in light and seven
+in dark (closed, closed with the focus, open with the focus, open, open offline with two
+changes, the "sign in again" link, and that link with the focus); the seven dark
+screenshots the first review left out (02, 04, 05, 06, 13, 20, 21); and `SyncStatus.tsx`.
+
+The three points of the first review:
+
+1. **The mark: fixed.** `▾` at the right end of the closed line and `▴` when it is open,
+   muted, in light and dark; the words stay left. The "sign in again" link has no mark and
+   keeps its underline. In the code the mark is `aria-hidden` and can't shrink or wrap
+   under the words. `/design` shows it in both positions, because its samples are the same
+   component, closed and open.
+2. **The focus ring: fixed.** All four sides show inside the band, on the button closed and
+   open and on the link, in light and dark.
+3. **`aria-controls`: fixed.** The details are always in the page and `hidden` while
+   closed.
+
+The seven dark screenshots: the sign-in screen with the empty-field sentence and the focus
+on the e-mail, the empty and the filled list with "All synced", the open details, the
+storage warning with its explanation, and the demo list with its band all match the design
+and fit at 320px. They were taken before the fix, so their sync lines have no mark yet; the
+new screenshots show it. Of `dark-20-design` only the top of the page could be read (the
+band and the colours); the rest of `/design` was read in light in the first review.
+
+Nothing is sent back. What the first review listed under *Seen and left as it is* stands.
+
 # Test
 
 Not yet tested.
@@ -571,3 +602,8 @@ One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
   0.5.0 in a throwaway project`, three runs in a row. One run before those ended with
   `1 !== 0` from a step whose output was not kept; it did not come back, and is unexplained.
   Handed back to the UX designer for the second review.
+- 2026-11-20 ux-designer: reviewed: matches the design, on commit `20cbdfe`. The three points
+  of the first review are fixed (the mark on the sync line, its focus ring, the details
+  always in the page), and the seven dark screenshots left out the first time match too
+  (*Second review after building*; *Done when* 6). Handed to the tester; the pull request
+  stays a draft until the tester has passed it.
