@@ -13,6 +13,7 @@ One file per task, from [_template.md](_template.md). Pick from *Open* a task wh
 ## Doing
 
 - [T-0004 Spin up hosting and the backend, with automatic snapshots](T-0004-spin-up-hosting-and-backend.md): harness create also starts workflows in the private infrastructure repository that create the Netlify site and, for a project that syncs, a PocketBase app on the NAS with its own Funnel address and snapshot task; harness infra down removes a project again, after the Engineer's yes.
+- [T-0009 Make the browser install in CI fast and steady](T-0009-make-the-browser-install-in-ci-fast-and-steady.md): Install Playwright's Chromium without the system package step and cache it, in the reusable CI and in the harness's own template-e2e job, because that step took from 30 seconds to over six minutes.
 
 ## Done
 
