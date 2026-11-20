@@ -3,7 +3,7 @@
 __PROJECT_PURPOSE__
 
 An installable app that works offline: React, TypeScript and Vite, with the data on the
-device. Built AI-first with the harness; start with [AGENTS.md](AGENTS.md), the decisions
+device only (D-0002: no backend, no sign-in, no sync). Built AI-first with the harness; start with [AGENTS.md](AGENTS.md), the decisions
 in [docs/decisions/](docs/decisions/index.md) and the tasks in
 [docs/tasks/](docs/tasks/index.md).
 
@@ -29,5 +29,6 @@ pnpm run check        # the harness's checks: tasks, decisions, generated files
 | `src/text.ts` | every word a user reads |
 | `src/styles/app.css` | the design tokens; `/design` shows them |
 | `src/seed/` | the demo data that everything but production starts with |
-| `src/sync/` | where sync goes once there is a backend |
+| `src/sync/` | what adding sync later would take |
+| `src/headers.ts` | the security headers the build writes to `dist/_headers` |
 | `e2e/` | end-to-end tests |

@@ -1,7 +1,7 @@
 ---
 id: T-0007
 title: "Generate the private infrastructure repository, install the runner on the NAS, and run harness nas through a workflow"
-description: "harness infra init generates the thin private infrastructure repository, harness infra runner installs a self-hosted runner as an app on the NAS, and harness nas --remote calls the TrueNAS API through a workflow there, with the key from the GitHub environment; released as 0.4.0 with the rules for G-0026 to G-0029."
+description: "harness infra init generates the thin private infrastructure repository, harness infra runner installs a self-hosted runner as an app on the NAS, and harness nas --remote calls the TrueNAS API through a workflow there, with the key from the GitHub environment; released as 0.6.0 with the rules for G-0026 to G-0029."
 status: Doing               # Open | Doing | Done | Dropped
 depends_on: [T-0003]        # tasks that must be Done first
 decisions: [G-0007, G-0009, G-0011, G-0015, G-0026, G-0027, G-0028, G-0029]
@@ -25,7 +25,7 @@ without a key on that machine:
 - **`harness nas --remote <method>`** starts the `nas` workflow there, waits, and prints the
   result. The workflow runs `harness nas` on the runner, with the key from the environment.
 - The harness's rules, README and messages follow G-0026 to G-0029, and the version is
-  0.4.0.
+  0.6.0 (0.4.0 was never tagged; T-0008 took 0.5.0).
 
 # Done when
 
@@ -53,7 +53,7 @@ without a key on that machine:
    configuration after the install (`harness nas --remote app.config` on the runner app
    shows none). This pull request's diff and the generated repository hold no host name,
    address, dataset path or token.
-6. `v0.4.0` is tagged on a green `main`.
+6. `v0.6.0` is tagged on a green `main`.
 
 # Notes
 
@@ -127,7 +127,7 @@ without a key on that machine:
 - `create`'s message for a private repository: not a warning. One `Remaining:` line that
   says the default branch gets its ruleset when the repository is public, with the command
   (G-0029).
-- `package.json` to 0.4.0.
+- `package.json` to 0.6.0.
 
 # Design
 

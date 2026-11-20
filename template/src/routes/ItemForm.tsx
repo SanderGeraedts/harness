@@ -1,7 +1,7 @@
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useState, type FormEvent } from 'react'
 import { AccentHeading, Button, Field, inputClass } from '../components/ui'
-import { ITEM_STATUSES, type ItemStatus } from '../db/db'
+import { ITEM_STATUSES, NOTE_MAX, TITLE_MAX, type ItemStatus } from '../db/db'
 import { createItem, updateItem } from '../db/write'
 import { t } from '../text'
 import { SlugRedirect, useItemBySlug } from './itemBySlug'
@@ -37,6 +37,15 @@ export function ItemForm({
       setError(t.titleMissing)
       return
     }
+    // The fields stop typing at these limits; this is for a value that got in another way.
+    if (title.trim().length > TITLE_MAX) {
+      setError(t.titleTooLong(TITLE_MAX))
+      return
+    }
+    if (note.length > NOTE_MAX) {
+      setError(t.noteTooLong(NOTE_MAX))
+      return
+    }
     setSaving(true)
     try {
       await onSave({ title, note, status })
@@ -49,10 +58,10 @@ export function ItemForm({
   return (
     <form onSubmit={(e) => void submit(e)} noValidate>
       <Field label={t.title} htmlFor="item-title">
-        <input id="item-title" className={inputClass} value={title} onChange={(e) => setTitle(e.target.value)} autoComplete="off" />
+        <input id="item-title" className={inputClass} value={title} onChange={(e) => setTitle(e.target.value)} autoComplete="off" maxLength={TITLE_MAX} />
       </Field>
       <Field label={t.note} htmlFor="item-note" hint={t.noteHint}>
-        <textarea id="item-note" className={inputClass} rows={4} value={note} onChange={(e) => setNote(e.target.value)} />
+        <textarea id="item-note" className={inputClass} rows={4} value={note} onChange={(e) => setNote(e.target.value)} maxLength={NOTE_MAX} />
       </Field>
       <Field label={t.status} htmlFor="item-status">
         <select id="item-status" className={inputClass} value={status} onChange={(e) => setStatus(e.target.value as ItemStatus)}>

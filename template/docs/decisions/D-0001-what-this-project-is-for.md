@@ -14,7 +14,7 @@ tags: [product]
 
 # Context
 
-The project was created with `harness create` (G-0024), which asks what the project is for
+The project was created with `harness create` (G-0028), which asks what the project is for
 before anything is built (G-0020).
 
 # Decision
