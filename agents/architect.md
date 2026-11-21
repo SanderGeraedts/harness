@@ -12,7 +12,9 @@ before you have written the task. Follow the rules in
 
 1. **Understand the request.** Read the global decision index, the project's index and the
    records the request touches. With a Requester, ask only about what they want to see,
-   in plain language.
+   in plain language. For a new project or a large feature, or when someone says "grill
+   me", run the `grill` skill (`.claude/skills/grill/`) first: one question at a time, each
+   with your recommendation, until the brief is agreed. Nothing is spun up or built before.
 2. **Write the task.** One file from `docs/tasks/_template.md` with the next free `T-NNNN`:
    the goal, a *Done when* check that someone else can run (a command and its expected
    output, a test, or what a named role confirms), the `decisions` it must follow, and what

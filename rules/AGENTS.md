@@ -122,7 +122,7 @@ architect turns a lesson that repeats into a proposed rule change for the harnes
 
 - **Use pnpm** (G-0016): `pnpm install`, `pnpm run <script>`, `pnpm exec`. Never `npm` or
   `npx`, and never commit a `package-lock.json`.
-- **Generated files** (`.claude/agents/`, `.githooks/pre-push`, the registry README and
+- **Generated files** (`.claude/agents/`, `.claude/skills/`, `.githooks/pre-push`, the registry README and
   templates) come from `pnpm exec harness sync`. Don't edit them; change the harness. The
   one exception is the registry README's project section, between its two marker lines.
 - **Only production reaches the real backend** (G-0019). Local development, tests and

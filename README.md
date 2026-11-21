@@ -45,7 +45,7 @@ Every task goes through a pipeline, and each role writes its result in the task 
 The project is an existing git repository with a `package.json`, using pnpm.
 
 ```sh
-pnpm add -D github:SanderGeraedts/harness#v0.7.0
+pnpm add -D github:SanderGeraedts/harness#v0.8.0
 pnpm exec harness init <engineer-github-login>...
 pnpm exec harness check
 ```
@@ -85,7 +85,7 @@ concurrency:
 
 jobs:
   checks:
-    uses: SanderGeraedts/harness/.github/workflows/ci.yml@v0.7.0
+    uses: SanderGeraedts/harness/.github/workflows/ci.yml@v0.8.0
     # with:
     #   checks: |
     #     pnpm run typecheck
@@ -120,7 +120,7 @@ permissions:
 
 jobs:
   merge:
-    uses: SanderGeraedts/harness/.github/workflows/auto-merge.yml@v0.7.0
+    uses: SanderGeraedts/harness/.github/workflows/auto-merge.yml@v0.8.0
     # with:
     #   ci-workflow: ci.yml
     #   backend-workflow: backend.yml
@@ -178,7 +178,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: SanderGeraedts/harness/.github/workflows/backend.yml@v0.7.0
+    uses: SanderGeraedts/harness/.github/workflows/backend.yml@v0.8.0
 ```
 
 Publishing is a job of its own: the only one that takes `packages: write`, and it runs on
@@ -213,7 +213,7 @@ when the checks passed.
 ## Adopt, in a repository that already has registries
 
 ```sh
-pnpm add -D github:SanderGeraedts/harness#v0.7.0
+pnpm add -D github:SanderGeraedts/harness#v0.8.0
 pnpm exec harness adopt
 pnpm exec harness adopt --write <engineer-github-login>...
 pnpm exec harness sync
@@ -398,14 +398,25 @@ to refresh the lockfiles new projects start from. `node scripts/make-project.mjs
 ## Update
 
 ```sh
-pnpm add -D github:SanderGeraedts/harness#v0.7.0
+pnpm add -D github:SanderGeraedts/harness#v0.8.0
 pnpm exec harness sync
-pnpm exec harness changes v0.6.0 v0.7.0
+pnpm exec harness changes v0.7.0 v0.8.0
 ```
 
 Bump the tag in both workflows in the same pull request, and put the output of `changes` in
 its description: the global decisions that were added, changed or replaced. Per decision the
 project's architect opens a task to conform or records an overruling decision.
+
+From 0.7.0 to 0.8.0, also in that pull request:
+
+- `sync` adds the team's first skill, `.claude/skills/grill/SKILL.md`: before a new project
+  or a large feature, the architect interviews the human one question at a time until the
+  brief is agreed. It also rewrites `.claude/agents/architect.md`, whose first duty now
+  names the skill. Commit what it writes; `check` reports a skill that differs, like an agent.
+- `CLAUDE.md` from the template gains a line on `.claude/skills/`; an existing project may
+  add it by hand.
+- No global decision changes, and nothing changes for callers of `ci.yml`, `auto-merge.yml`
+  and `backend.yml`.
 
 From 0.6.0 to 0.7.0, also in that pull request:
 
@@ -470,7 +481,7 @@ Run from the project root with `pnpm exec harness <command>`.
 | `overrules` | lists the project decisions that overrule global ones |
 | `changes <fromTag> [toTag]` | lists the global decisions added, changed or replaced after `fromTag`, up to `toTag` (default: the installed version) |
 | `waiting [dir...]` | lists what waits on a human, for one or several project folders: open questions, tasks' `Remaining:` lines, and open GitHub issues that are assigned. Skips issues when `gh` is missing |
-| `sync` | writes or refreshes the generated files: `.claude/agents/*.md`, `.githooks/pre-push`, the push rules and the `--confirmed`, `confirmed=true`, `project-down` and `confirmation=` ask rules in `.claude/settings.json` (merged into the project's own), the registry README (keeping its project section) and the templates |
+| `sync` | writes or refreshes the generated files: `.claude/agents/*.md`, `.claude/skills/*/SKILL.md`, `.githooks/pre-push`, the push rules and the `--confirmed`, `confirmed=true`, `project-down` and `confirmation=` ask rules in `.claude/settings.json` (merged into the project's own), the registry README (keeping its project section) and the templates |
 | `init [login...] [--default-branch <name>]` | sets an existing repository up, then runs `sync` |
 | `adopt [--write] [login...] [--default-branch <name>]` | for a repository that already has registries: reports what is there, what would be added, which generated files differ, and which project decisions look like a global one; changes nothing. With `--write` it adds what is missing and overwrites nothing |
 | `hooks` | points git at `.githooks`; the project's `prepare` script |

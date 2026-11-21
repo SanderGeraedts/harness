@@ -12,6 +12,7 @@ One file per task, from [_template.md](_template.md). Pick from *Open* a task wh
 
 - [T-0004 Spin up hosting and the backend, with automatic snapshots](T-0004-spin-up-hosting-and-backend.md): harness create also starts workflows in the private infrastructure repository that create the Netlify site and, for a project that syncs, a PocketBase app on the NAS with its own Funnel address and snapshot task; harness infra down removes a project again, after the Engineer's yes.
 - [T-0007 Generate the private infrastructure repository, install the runner on the NAS, and run harness nas through a workflow](T-0007-the-infrastructure-repository-the-runner-and-nas-by-workflow.md): harness infra init generates the thin private infrastructure repository, harness infra runner installs a self-hosted runner as an app on the NAS, and harness nas --remote calls the TrueNAS API through a workflow there, with the key from the GitHub environment; released as 0.6.0 with the rules for G-0026 to G-0029.
+- [T-0010 Give the team a grill skill that interviews the human before a new project is built](T-0010-the-grill-skill.md): harness sync writes the team's skills to .claude/skills/, starting with grill: before a new project or a large feature the architect asks one question at a time, each with a recommendation, proposes nice-to-haves and ends with a brief that becomes tasks, decisions and questions; released as 0.8.0.
 
 ## Done
 

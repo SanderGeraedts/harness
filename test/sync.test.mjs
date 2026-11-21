@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
 import { init, parseArgs } from '../lib/init.mjs';
 import { HARNESS_ROOT } from '../lib/paths.mjs';
-import { SECTION_END, SECTION_START, generatedFiles, mergeSettings, projectSection, requiredSettings, staleFiles, sync, withProjectSection } from '../lib/sync.mjs';
+import { SECTION_END, SECTION_START, generatedFiles, skillNames, mergeSettings, projectSection, requiredSettings, staleFiles, sync, withProjectSection } from '../lib/sync.mjs';
 import { cleanUp, tempProject, write } from './helpers.mjs';
 
 after(cleanUp);
@@ -16,6 +16,7 @@ const GENERATED = [
   '.claude/agents/developer.md',
   '.claude/agents/tester.md',
   '.claude/agents/ux-designer.md',
+  '.claude/skills/grill/SKILL.md',
   '.githooks/pre-push',
   'docs/decisions/README.md',
   'docs/decisions/_template-decision.md',
@@ -46,11 +47,24 @@ describe('sync', () => {
     assert.equal(readFileSync(join(dir, '.claude/agents/tester.md'), 'utf8'), readFileSync(join(HARNESS_ROOT, 'agents/tester.md'), 'utf8').replace(/\r\n/g, '\n'));
   });
 
-  it("leaves the project's own agents and files alone", () => {
+  it("leaves the project's own agents, skills and files alone", () => {
     const dir = tempProject();
     write(dir, '.claude/agents/own.md', 'mine\n');
+    write(dir, '.claude/skills/own/SKILL.md', 'mine\n');
     sync(dir);
     assert.equal(readFileSync(join(dir, '.claude/agents/own.md'), 'utf8'), 'mine\n');
+    assert.equal(readFileSync(join(dir, '.claude/skills/own/SKILL.md'), 'utf8'), 'mine\n');
+  });
+
+  it("writes every skill in the harness's skills folder, as it is there", () => {
+    assert.deepEqual(skillNames(), ['grill']);
+    const dir = tempProject();
+    sync(dir);
+    const own = readFileSync(join(HARNESS_ROOT, 'skills/grill/SKILL.md'), 'utf8').replace(/\r\n/g, '\n');
+    assert.equal(readFileSync(join(dir, '.claude/skills/grill/SKILL.md'), 'utf8'), own);
+    assert.match(own, /^---\nname: grill\ndescription: /);
+    write(dir, '.claude/skills/grill/SKILL.md', 'edited\n');
+    assert.deepEqual(staleFiles(dir), ['.claude/skills/grill/SKILL.md']);
   });
 
   it("merges the rules into the project's settings without dropping its own", () => {

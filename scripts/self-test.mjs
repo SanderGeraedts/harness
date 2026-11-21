@@ -55,7 +55,7 @@ try {
   ok('git init -q -b main');
   put('package.json', `${JSON.stringify({ name: 'throwaway', private: true, version: '0.0.0', type: 'module', packageManager: own.packageManager }, null, 2)}\n`);
   ok(`pnpm add -D "${join(work, tarball)}"`);
-  for (const f of ['rules/AGENTS.md', 'decisions/index.md', 'decisions/README.md', 'agents/tester.md', 'templates/task.md', 'hooks/pre-push', 'bin/harness.mjs'])
+  for (const f of ['rules/AGENTS.md', 'decisions/index.md', 'decisions/README.md', 'agents/tester.md', 'skills/grill/SKILL.md', 'templates/task.md', 'hooks/pre-push', 'bin/harness.mjs'])
     assert.ok(existsSync(join(installed, f)), `the package lacks ${f}`);
   for (const f of ['test', 'scripts', 'docs', '.github', '.claude'])
     assert.ok(!existsSync(join(installed, f)), `the package should not carry ${f}`);
@@ -67,7 +67,7 @@ try {
     'AGENTS.md', 'CLAUDE.md', '.harness/engineers', 'docs/lessons.md', 'docs/decisions/index.md', 'docs/decisions/README.md',
     'docs/decisions/_template-decision.md', 'docs/decisions/_template-question.md', 'docs/tasks/_template.md', 'docs/tasks/index.md',
     '.claude/agents/architect.md', '.claude/agents/ux-designer.md', '.claude/agents/developer.md', '.claude/agents/tester.md',
-    '.claude/settings.json', '.githooks/pre-push',
+    '.claude/skills/grill/SKILL.md', '.claude/settings.json', '.githooks/pre-push',
   ])
     assert.ok(existsSync(join(project, f)), `init did not create ${f}`);
   assert.match(get('.harness/engineers'), /^engineer-one$/m);
@@ -132,6 +132,9 @@ try {
   appendFileSync(join(project, '.claude/agents/tester.md'), '\nA local edit.\n');
   fails(`${harness} check`, /\.claude\/agents\/tester\.md is missing or stale: run harness sync/);
   assert.match(ok(`${harness} sync`), /wrote \.claude\/agents\/tester\.md/);
+  appendFileSync(join(project, '.claude/skills/grill/SKILL.md'), '\nA local edit.\n');
+  fails(`${harness} check`, /\.claude\/skills\/grill\/SKILL\.md is missing or stale: run harness sync/);
+  assert.match(ok(`${harness} sync`), /wrote \.claude\/skills\/grill\/SKILL\.md/);
   ok(`${harness} check`);
 
   step('harness role');
