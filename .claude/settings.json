@@ -45,7 +45,11 @@
       "Bash(*--confirmed*)",
       "Bash(*confirmed=true*)",
       "PowerShell(*--confirmed*)",
-      "PowerShell(*confirmed=true*)"
+      "PowerShell(*confirmed=true*)",
+      "Bash(*project-down*)",
+      "Bash(*confirmation=*)",
+      "PowerShell(*project-down*)",
+      "PowerShell(*confirmation=*)"
     ]
   }
 }

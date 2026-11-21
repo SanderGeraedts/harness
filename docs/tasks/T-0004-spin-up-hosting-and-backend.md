@@ -644,3 +644,21 @@ One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
 - 2026-11-21 tester: sent back: the pull request conflicts with `main` (this file's Log),
   so no `pull_request` check runs; and `gh workflow run project-down.yml … -f
   confirmation=<p>` starts teardown without any ask rule. See *Test*.
+- 2026-11-21 developer: fixed what the tester sent back. (1) Merged `main`: both Log lines
+  kept (the architect's G-0030 line before this branch's); the Notes now say Q-001 is resolved
+  by G-0030 (*Open question (resolved)*, and the line under *Done when*), and a new *As built,
+  and open for the architect* records the Netlify app check as built, the pull token as a
+  NAS-wide registry entry plus Watchtower's `REPO_PASS` (for the architect, against G-0030's
+  wording), variable scopes reaching functions, and `trustedProxy` and the outbox policy as
+  future tasks. (2) `harness sync` also writes the ask rules `Bash(*project-down*)`,
+  `Bash(*confirmation=*)`, `PowerShell(*project-down*)` and `PowerShell(*confirmation=*)`, the
+  harness's own `.claude/settings.json` has them, `rules/AGENTS.md` says so, and self-test step
+  18 checks that a direct start of teardown asks in Bash and PowerShell (`gh workflow run
+  project-down.yml … -f confirmation=p`, by name without `.yml`, by workflow id with
+  `confirmation=`, and `gh api …/project-down.yml/dispatches`), while `infra down` without
+  `--confirmed` and `infra up` ask nobody. It only adds ask rules; nothing is loosened.
+  (3) An "empty" site is taken over only when `/sites/<id>/deploys` is empty too.
+  Checks: `pnpm test`: `tests 257, pass 256, fail 0, skipped 1` (the jq test, which runs in
+  CI); `pnpm run self-test`: `✓ self-test passed: 31 steps, harness 0.7.0 in a throwaway
+  project`; `pnpm run check`: `✓ tasks: 9 tasks, index in step`, `✓ global decisions: 30
+  records, index complete`, `✓ agents: 4 definitions`.

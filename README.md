@@ -412,8 +412,10 @@ From 0.6.0 to 0.7.0, also in that pull request:
 - A project that syncs: in `.github/workflows/auto-merge.yml`, set `workflows: [CI,
   Backend]` and add `wait-for: CI,Backend` under `with:`, so a pull request whose `Backend`
   run failed no longer merges. A new project gets this from the template.
-- Nothing else changes for callers of `ci.yml`, `auto-merge.yml` and `backend.yml`, and
-  `sync` writes what it wrote before.
+- `sync` adds two ask rules to `.claude/settings.json` for each of Bash and PowerShell:
+  `*project-down*` and `*confirmation=*`, so a teardown workflow started by hand asks a
+  human just as `harness infra down --confirmed` does. Commit what it writes.
+- Nothing else changes for callers of `ci.yml`, `auto-merge.yml` and `backend.yml`.
 - The Engineer runs `harness infra init` once more: `project-up.yml` gains the input
   `private` and `project-down.yml` the input `repository`, and both callers now do the work.
   New are `harness infra up` and `harness infra down`, and `create` ends by spinning up the
@@ -468,7 +470,7 @@ Run from the project root with `pnpm exec harness <command>`.
 | `overrules` | lists the project decisions that overrule global ones |
 | `changes <fromTag> [toTag]` | lists the global decisions added, changed or replaced after `fromTag`, up to `toTag` (default: the installed version) |
 | `waiting [dir...]` | lists what waits on a human, for one or several project folders: open questions, tasks' `Remaining:` lines, and open GitHub issues that are assigned. Skips issues when `gh` is missing |
-| `sync` | writes or refreshes the generated files: `.claude/agents/*.md`, `.githooks/pre-push`, the push rules and the `--confirmed` and `confirmed=true` ask rules in `.claude/settings.json` (merged into the project's own), the registry README (keeping its project section) and the templates |
+| `sync` | writes or refreshes the generated files: `.claude/agents/*.md`, `.githooks/pre-push`, the push rules and the `--confirmed`, `confirmed=true`, `project-down` and `confirmation=` ask rules in `.claude/settings.json` (merged into the project's own), the registry README (keeping its project section) and the templates |
 | `init [login...] [--default-branch <name>]` | sets an existing repository up, then runs `sync` |
 | `adopt [--write] [login...] [--default-branch <name>]` | for a repository that already has registries: reports what is there, what would be added, which generated files differ, and which project decisions look like a global one; changes nothing. With `--write` it adds what is missing and overwrites nothing |
 | `hooks` | points git at `.githooks`; the project's `prepare` script |

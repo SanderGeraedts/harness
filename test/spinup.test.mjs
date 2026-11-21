@@ -317,6 +317,7 @@ function fakeNetlify({ sites = [], env = {} } = {}) {
       for (const v of body) state.env[`${query.site_id}:${v.key}`] = v;
       return body;
     }
+    if ((m = path.match(/^\/sites\/([\w-]+)\/deploys$/))) return state.sites.find((x) => x.id === m[1])?.deploys ?? [];
     if ((m = path.match(/^\/sites\/([\w-]+)\/builds$/))) {
       state.builds++;
       return { deploy_id: 'd1' };
@@ -407,6 +408,10 @@ describe('spin-up: the site', () => {
     const used = fakeNetlify({ sites: [linkedElsewhere, { ...left, published_deploy: { id: 'd' } }] });
     const r2 = await ensureSite(used.api, { project: 'my-project', repository: 'engineer-one/my-project' });
     assert.notEqual(r2.site.id, 'left');
+    // So is one with any deploy, even a failed one that never published.
+    const tried = fakeNetlify({ sites: [linkedElsewhere, { ...left, deploys: [{ id: 'd', state: 'error' }] }] });
+    const r3 = await ensureSite(tried.api, { project: 'my-project', repository: 'engineer-one/my-project' });
+    assert.notEqual(r3.site.id, 'left');
   });
 });
 

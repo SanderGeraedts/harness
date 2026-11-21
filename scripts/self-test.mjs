@@ -251,6 +251,20 @@ try {
   const ask = JSON.parse(get('.claude/settings.json')).permissions.ask;
   for (const rule of ['Bash(*--confirmed*)', 'PowerShell(*--confirmed*)', 'Bash(*confirmed=true*)', 'PowerShell(*confirmed=true*)']) assert.ok(ask.includes(rule), `the ask rules hold ${rule}`);
 
+  step('Claude Code asks a human before the teardown workflow is started directly, in any spelling');
+  // An ask rule's * matches anything; a command it matches is asked about, in either shell.
+  const asks = (tool, command) => ask.some((rule) => rule.startsWith(`${tool}(`) && new RegExp(`^${rule.slice(tool.length + 1, -1).split('*').map((p) => p.replace(/[.+?^${}()|[]\]/g, '\$&')).join('.*')}$`, 's').test(command));
+  for (const command of [
+    'gh workflow run project-down.yml --repo owner/infra -f project=p -f repository=owner/p -f confirmation=p',
+    'gh workflow run project-down --repo owner/infra -f project=p -f confirmation=p',
+    'GH_TOKEN=x gh api -X POST repos/owner/infra/actions/workflows/project-down.yml/dispatches -f ref=main -f "inputs[project]=p" -f "inputs[confirmation]=p"',
+    'gh workflow run 123456 --repo owner/infra -f project=p -f confirmation=p',
+    'pnpm exec harness infra down p --confirmed',
+  ])
+    for (const tool of ['Bash', 'PowerShell']) assert.ok(asks(tool, command), `${tool} asks before: ${command}`);
+  // What only lists, and spin-up, ask nobody.
+  for (const command of ['pnpm exec harness infra down p', 'pnpm exec harness infra up p']) assert.ok(!asks('Bash', command), `no ask for: ${command}`);
+
   step('harness infra and nas --remote stop with a plain message when no infrastructure repository is set');
   // As the Engineer of this project, told who is signed in: CI has no gh account.
   writeFileSync(
