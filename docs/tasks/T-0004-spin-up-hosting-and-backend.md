@@ -404,7 +404,129 @@ site: …`, or with `Created, but spin-up isn't finished: …, run harness infra
 
 # Test
 
-Not yet tested.
+Tester, 2026-11-21, on `2635545` (last content `015c0c1`), in a fresh worktree. Every
+address but the site's, the tailnet's name, the dataset's path and run addresses are left
+out; `<backend>` stands for the backend's origin, read from the production site's policy
+into a scratch file and never printed.
+
+**Verdict: sent back.** Two defects, below. Everything else that could be run holds.
+
+## The checks
+
+- `pnpm install --frozen-lockfile`: `Lockfile is up to date … Done in 372ms`.
+- `pnpm test`: `tests 257, suites 49, pass 256, fail 0, skipped 1` (the jq test, `# needs
+  bash and jq`; it runs in CI).
+- `pnpm run check`: `✓ tasks: 9 tasks, index in step`, `✓ global decisions: 29 records,
+  index complete`, `✓ agents: 4 definitions`.
+- `pnpm run self-test`: first run `✗ self-test failed at step 25: … EPERM: operation not
+  permitted, rename '…\spun-up\_github' -> '…\spun-up\.github'` (Windows holding the new
+  folder a moment; the rename is unchanged from main); second run `✓ self-test passed: 30
+  steps, harness 0.7.0 in a throwaway project`, with the steps the Notes list (16, 18, 19,
+  20, 24).
+- `node scripts/self-test.mjs --e2e`: `✓ self-test passed: 32 steps, harness 0.7.0 in a
+  throwaway project`.
+- `node --test test/workflows.test.mjs test/infra.test.mjs test/spinup.test.mjs`: `tests
+  132, pass 131, fail 0` (the jq one skipped); among them `the four generated callers, with
+  any environment and ref` and `are valid YAML that a parser reads back as meant`.
+
+## The live proof, from outside (Done-when 3 to 7)
+
+- **Production** `https://harness-spinup-proof.netlify.app/`: `200`; headless Chrome shows
+  "Sign in" and "Sign in to see your items and keep them the same on every device.", no
+  "Demo data", no tailnet name in the page. `connect-src 'self' <backend>`: exactly two
+  entries, the second an `https://harness-spinup-proof.<tailnet>` origin.
+- **The backend:** `/api/health` 200; the items list signed out 200 with `totalItems 0
+  items 0` and `Access-Control-Allow-Origin` the site's origin; with another origin, and a
+  preflight from another origin, no CORS header; sign-up 403; `/_/` 404; the superuser
+  sign-in 404; `/api/collections`, `/api/collections/`, `/api/settings`, `/api/backups`,
+  `/api/logs` 404; `../`, `%2e%2e/` and `..%2f` into `_superusers` from an allowed path
+  404; `/API/collections/_superusers/records` 404; the admin port gives no TLS (curl exit
+  35); port 80 redirects to https.
+- **The deploy preview** `deploy-preview-1--harness-spinup-proof.netlify.app` (draft #1 in
+  the throwaway): `200`, `connect-src 'self'`; headless Chrome shows "Demo data · sync is
+  off", the demo items, no "Sign in" (3 of 5 renders; the other 2 headless renders were
+  empty, a virtual-time quirk). A crawl of what it serves: `{"files":15,
+  "filesWithNeedle":0,"filesWithTsNetName":0,"ipv4":[]}`; the same crawl of production:
+  `{"files":15,"filesWithNeedle":1,"filesWithTsNetName":1,"ipv4":["127.0.0.1"]}`.
+- **Snapshots,** through `harness nas --remote` (read only): `pool.snapshottask.query`
+  filtered to the project: 1 task, `enabled: true`, `recursive: true`, minute 0 every hour,
+  `2 WEEK`, state `FINISHED`. `pool.snapshot.query` filtered server-side with `~` gave 0;
+  all names read and filtered here: 33 snapshots, 11 each on the dataset, `pb_data` and
+  `tailscale`, hourly from `auto-2026-11-20_21-11` to `auto-2026-11-21_07-00`. The three
+  datasets carry `harness:project=harness-spinup-proof`, and no other dataset on the NAS
+  carries the mark. `app.query`: `RUNNING`.
+- **A second run changes nothing:** `harness infra up harness-spinup-proof` (exit 0, the
+  infrastructure repository pinned to `8e2d0f4`; `8e2d0f4..015c0c1` changes only this file
+  and test stand-ins): every step `already there` (site, link, dataset, snapshot task, pull
+  registry, app `nothing changed`, `BACKEND_URL … already there`, `the production build:
+  already there`), every outside check ✓, `The site: https://harness-spinup-proof.netlify.app`,
+  the `Remaining:` line for the superuser and user, `Done.` No address but the site's.
+- **Nothing leaked:** in this pull request's diff and commit messages, and in every file and
+  commit of the throwaway's four refs: no `tskey-`, `.ts.net`, `/mnt/`, `nfp_`, `ghp_`,
+  `github_pat_`, `gho_`, `ghs_`, private key, the backend's address, the tailnet's name, the
+  infrastructure repository's name or any UUID (so no Netlify site id); IPv4 only `0.0.0.0`
+  and `127.0.0.1`. The diff names the throwaway only in this file's Log. In the last 11 runs
+  of the infrastructure repository (3,765 log lines, both `project-up` runs among them):
+  every secret shows as `***`; no key prefix, no IPv4, no `/mnt/`; the backend's address
+  twice, as the `checks` job's `BACKEND_URL`, in the private repository's own log, which
+  G-0027 allows. The environment `Prod` has `GHCR_PULL_TOKEN`, `NETLIFY_AUTH_TOKEN`,
+  `TRUENAS_API_KEY`, `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET` (names only).
+
+## What failed
+
+1. **The pull request conflicts with `main`** (`gh pr view 17 --json mergeable`:
+   `CONFLICTING`; `git merge-tree --write-tree origin/main HEAD`: `CONFLICT (content): Merge
+   conflict in docs/tasks/T-0004-spin-up-hosting-and-backend.md`). `main` added the
+   architect's Log line for G-0030 (#14) after this branch left it. That is why no
+   `pull_request` run attaches to #17 (`statusCheckRollup: []`; the newest `pull_request`
+   run is on `8e2d0f4`): GitHub can't make the merge commit. With no required check on the
+   pull request it can't be marked ready or merge. Fix: merge `main` into the branch (keep
+   both Log lines); the Notes' *Open question* and "3, 4, 8 and 9 need Q-001 answered" are
+   then out of date too.
+2. **Teardown can be started without the ask rule.** `.claude/settings.json` asks a human
+   for `*--confirmed*` and `*confirmed=true*`. `harness infra down <p> --confirmed` is
+   caught, but `project-down.yml` takes `confirmation=<project>`, not `confirmed=true`, so
+   `gh workflow run project-down.yml --repo <infra> -f project=<p> -f repository=<o>/<p> -f
+   confirmation=<p>` matches no ask rule and deletes the site, the app and the dataset with
+   every snapshot without a prompt. The environment has no protection rule either
+   (`protection_rules: []`). `nas.yml` was closed against exactly this (self-test step 17);
+   teardown reopens it. Fix it so a direct start of the teardown workflow is asked too, and
+   prove it in the self-test as step 17 does for `nas.yml`.
+
+## Read, and found sound
+
+- **Teardown** refuses without `--confirmed` (lists, exit 2, starts nothing; self-test 19),
+  every job refuses a confirmation that isn't the name, `inspect` refuses an unmarked
+  dataset or unlabelled app of the name before anything goes, the site only when marked and
+  not linked elsewhere, the dataset only by exact id `<parent>/<project>` with the mark.
+  Not checked: whether the mark is set on the dataset itself or inherited from the parent;
+  today no other dataset carries it.
+- **`wait-for`** in auto-merge: waits while a named workflow runs for the head, refuses when
+  its newest run failed, ignores one that didn't run, and a second deciding run finds the
+  pull request merged. It reads only `event=pull_request` runs, so a Backend run started by
+  hand for the head isn't counted.
+- **Taking over an empty site of the same name:** only in the token's own account, only the
+  exact name, only with no repository, no `repo_url`, no published deploy and no mark. A
+  site whose deploys were all drafts or all failed would still count as empty; asking
+  `/sites/<id>/deploys` for none at all would close that.
+
+## The developer's open points
+
+- (1) The Netlify app check: the installation read from a linked site or given by
+  `--netlify-installation` works live; the Notes' plan (`user/installations`) is out of date.
+  For the architect, to record.
+- (2) The pull token as an `app.registry` entry on the NAS plus Watchtower's `REPO_PASS`:
+  wider than G-0030's "the app's configuration" (the registry entry serves every app on the
+  NAS). For the architect; a decision if it stays.
+- (3) No variable scopes on Netlify's free plan, so `BACKEND_URL` also reaches functions:
+  not a secret, G-0019 still holds for previews. For the architect to note in the Notes.
+- (4) The `trustedProxy` rate limit: every visitor shares one address behind Funnel, so
+  PocketBase's rate limit is shared. A template migration plus a decision to trust
+  `X-Forwarded-For`: architect, as its own task.
+- (5) The outbox's refused-change policy: open from T-0008; architect, own task.
+
+None of them needs the Engineer now; (2) needs the Engineer only if the architect proposes
+replacing G-0030.
 
 # Log
 
@@ -494,3 +616,6 @@ One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
   then the machine in the tailnet's admin console, the throwaway repository and its image;
   the tester's pass; after the tag `v0.7.0`, `harness infra init` once more to pin the
   infrastructure repository to it.
+- 2026-11-21 tester: sent back: the pull request conflicts with `main` (this file's Log),
+  so no `pull_request` check runs; and `gh workflow run project-down.yml … -f
+  confirmation=<p>` starts teardown without any ask rule. See *Test*.
