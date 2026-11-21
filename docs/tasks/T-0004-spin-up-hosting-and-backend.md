@@ -552,6 +552,51 @@ into a scratch file and never printed.
 None of them needs the Engineer now; (2) needs the Engineer only if the architect proposes
 replacing G-0030.
 
+## Second run, 2026-11-21, on `67dbdf3`
+
+**Verdict: passed.** Done-when 1 to 7 hold. 8, 9 and 10 wait for the Engineer.
+
+- `pnpm install --frozen-lockfile`: `Done in 397ms`.
+- `pnpm test`: `tests 257, pass 256, fail 0, skipped 1` (the jq test, `# needs bash and
+  jq`; CI runs it).
+- `pnpm run check`: `✓ tasks: 9 tasks, index in step`, `✓ global decisions: 30 records,
+  index complete`, `✓ agents: 4 definitions`.
+- `pnpm run self-test`: `✓ self-test passed: 31 steps, harness 0.7.0 in a throwaway
+  project`, with the new step 18 `Claude Code asks a human before the teardown workflow is
+  started directly, in any spelling`.
+- `node scripts/self-test.mjs --e2e`: `✓ self-test passed: 33 steps`.
+- `gh pr view 17 --json mergeable,mergeStateStatus,statusCheckRollup`: `MERGEABLE`, `CLEAN`;
+  `checks / checks` success, `template-e2e` success, `template-backend / image` success,
+  `template-backend / publish` skipped (it publishes only from `main`).
+
+What I checked of the three fixes:
+
+1. **The conflict:** `git merge-tree --write-tree origin/main HEAD` gives a clean tree; the
+   Log has the architect's G-0030 line and this branch's lines. The Notes now say Q-001 is
+   resolved, and *As built, and open for the architect* holds the developer's five points.
+2. **Teardown asks a human.** I ran the ask rules through a glob matcher of my own (`*` only,
+   no regex), in Bash and PowerShell. They **ask** for: `gh workflow run project-down.yml …
+   -f confirmation=p`, `gh workflow run project-down …`, `gh workflow run 123456 …
+   --raw-field confirmation=p` and `-F confirmation=p`, `gh api -X POST
+   …/workflows/project-down.yml/dispatches …`, and `harness infra down p --confirmed`. They
+   ask **nobody** for `harness infra down p` and `harness infra up p`. Two spellings still
+   go through without an ask: `gh api -X POST …/workflows/<numeric id>/dispatches -f
+   inputs[confirmation]=p`, and inputs given as JSON on stdin (`… | gh workflow run <id>
+   --json`). Both need the workflow's numeric id plus a spelling no command or document
+   here uses, and `rules/AGENTS.md` forbids starting an infrastructure workflow with `gh`
+   directly. A glob rule can't catch every spelling, so this doesn't block the task. For
+   the architect: an ask rule `*/dispatches*`, or a gate on the environment, which would be
+   the Engineer's. Also, step 18's own matcher doesn't actually escape anything
+   (`replace(/[.+?^${}()|[]\]/g, '\$&')` is a no-op). It works today only because the rules
+   hold no regex characters.
+3. **Taking over a site:** this happens now only when `/sites/<id>/deploys` (first page,
+   `per_page: 1`) is empty as well. The new case in `test/spinup.test.mjs` gives a site
+   with one failed deploy and checks that it isn't taken. It passes as part of `pnpm test`.
+
+The live proof from the first run still holds. Since then nothing changed that the site or
+the backend runs: the code changed only in `netlify.mjs`, for the takeover, which an
+existing marked site never reaches.
+
 # Log
 
 One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
@@ -662,3 +707,11 @@ One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
   CI); `pnpm run self-test`: `✓ self-test passed: 31 steps, harness 0.7.0 in a throwaway
   project`; `pnpm run check`: `✓ tasks: 9 tasks, index in step`, `✓ global decisions: 30
   records, index complete`, `✓ agents: 4 definitions`.
+- 2026-11-21 tester: passed (second run, on `67dbdf3`): the conflict is gone and the PR's
+  checks attach and are green; teardown started directly asks a human in every spelling
+  this repository uses; a site is taken over only with no deploys. See *Test*.
+- 2026-11-21 tester: Remaining: Done-when 8, the Engineer makes the superuser and a user and
+  checks sync between two devices while offline; Done-when 9, teardown with `harness infra
+  down harness-spinup-proof --confirmed` after the Engineer's yes in chat; Done-when 10, the
+  Engineer removes the machine in the tailnet's admin console, the throwaway repository and
+  its image.
