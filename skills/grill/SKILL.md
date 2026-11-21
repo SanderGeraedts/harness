@@ -15,9 +15,13 @@ is created, spun up or written into a repository until the brief at the end is a
    plain words. With the **Engineer**, technical questions are fine, but still only the ones
    the decisions leave open.
 2. Read the global decision index (and the project's, when there is one). **Never ask what a
-   decision already answers**: the stack, hosting, the backend, offline-first, readable
-   addresses and private repositories are settled for a new project (G-0016 to G-0021,
-   G-0029). Say what they mean for this request instead, in one line, when it matters.
+   decision already answers**: the package manager, the stack, hosting and the backend,
+   demo data outside production, readable addresses and private repositories are settled
+   for a new project (G-0016 to G-0019, G-0021, G-0029). Say what they mean for this request
+   instead, in one line, when it matters. **What a decision leaves to the project, ask:**
+   G-0020 makes offline-first with sync a suggestion, so propose it (or say why it makes no
+   sense here) and get a yes; and it leaves the look and the language to each project, so
+   ask about both.
 3. Look before you ask. When the code, the decisions or a quick search can answer a
    question, find the answer and state it.
 4. Sketch the design tree for yourself: every feature in the request, and for each one the
