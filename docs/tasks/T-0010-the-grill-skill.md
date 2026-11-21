@@ -2,12 +2,12 @@
 id: T-0010
 title: "Give the team a grill skill that interviews the human before a new project is built"
 description: "harness sync writes the team's skills to .claude/skills/, starting with grill: before a new project or a large feature the architect asks one question at a time, each with a recommendation, proposes nice-to-haves and ends with a brief that becomes tasks, decisions and questions; released as 0.8.0."
-status: Doing                # Open | Doing | Done | Dropped
+status: Done                 # Open | Doing | Done | Dropped
 depends_on: []              # tasks that must be Done first
 decisions: [G-0007, G-0008, G-0010, G-0012, G-0015, G-0020]
 raised_on: 2026-11-21
-done_on: ""
-result: ["https://github.com/SanderGeraedts/harness/pull/19"]              # PR URLs
+done_on: "2026-11-21"
+result: ["https://github.com/SanderGeraedts/harness/pull/19", "https://github.com/SanderGeraedts/harness/pull/20"]              # PR URLs
 ---
 
 # Goal
@@ -154,3 +154,5 @@ names as the release.
   self-test 31 steps; `✓ skills: 1 skill`; CI green; the skill now follows G-0020.
 - Remaining: tag `v0.8.0` on the merge commit of #19, so `harness create` gives a new project
   the skill.
+- 2026-11-21 developer: tagged `v0.8.0` on `ad0da44`, the merge commit of #19, after Harness
+  CI passed on it; `git ls-remote --tags origin v0.8.0` lists it. Nothing remains.
