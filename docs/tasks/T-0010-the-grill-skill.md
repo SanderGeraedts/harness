@@ -4,10 +4,10 @@ title: "Give the team a grill skill that interviews the human before a new proje
 description: "harness sync writes the team's skills to .claude/skills/, starting with grill: before a new project or a large feature the architect asks one question at a time, each with a recommendation, proposes nice-to-haves and ends with a brief that becomes tasks, decisions and questions; released as 0.8.0."
 status: Doing                # Open | Doing | Done | Dropped
 depends_on: []              # tasks that must be Done first
-decisions: [G-0007, G-0008, G-0010, G-0012, G-0015]
+decisions: [G-0007, G-0008, G-0010, G-0012, G-0015, G-0020]
 raised_on: 2026-11-21
 done_on: ""
-result: []              # PR URLs
+result: ["https://github.com/SanderGeraedts/harness/pull/19"]              # PR URLs
 ---
 
 # Goal
@@ -121,3 +121,9 @@ settled; (2) the developer's Log line and `result` (#19) are missing.
   is settled and never asked, where G-0020 makes it a suggestion the architect proposes and
   records either way, with look and language asked per project; and the task has no
   developer Log line and no `result`. See *Test*.
+- 2026-11-21 developer: built it in #19 (skills/ folder, sync and check of skills, the grill
+  skill, the architect's duty, docs, 0.8.0); 258 tests passed, self-test 31 steps passed.
+- 2026-11-21 developer: fixed what the tester sent back: the skill no longer counts G-0020 as
+  settled but proposes offline-first and asks about look and language; `result` and this
+  Log are filled in; a skill without front matter now says "no name in its front matter"
+  instead of `name "undefined"`. Back to the tester.

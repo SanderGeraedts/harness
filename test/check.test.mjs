@@ -140,10 +140,13 @@ describe('check', () => {
     write(dir, 'empty/notes.md', 'nothing\n');
     write(dir, 'renamed/SKILL.md', '---\nname: other\ndescription: Does a thing.\n---\n');
     write(dir, 'silent/SKILL.md', '---\nname: silent\n---\n');
+    write(dir, 'bare/SKILL.md', 'No front matter.\n');
     const { names, problems } = checkSkills(dir);
-    assert.deepEqual(names, ['good', 'renamed', 'silent']);
+    assert.deepEqual(names, ['bare', 'good', 'renamed', 'silent']);
     assert.deepEqual(problems, [
       'skills/empty: no SKILL.md',
+      'skills/bare/SKILL.md: no name in its front matter',
+      'skills/bare/SKILL.md: no description',
       `skills/renamed/SKILL.md: name "other" doesn't match the folder`,
       'skills/silent/SKILL.md: no description',
     ]);
