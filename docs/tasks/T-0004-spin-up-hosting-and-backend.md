@@ -81,7 +81,7 @@ with the Engineer, on a throwaway project with a name no real project has.
 10. **The Engineer confirms** the throwaway repository, its container image and its machine
     in the tailnet's admin console are gone, which only they can remove.
 
-3, 4, 8 and 9 need Q-001 answered; see *Open question*.
+Q-001 is resolved by G-0030, so nothing here waits for it; see *Open question (resolved)*.
 
 # Notes
 
@@ -332,14 +332,38 @@ Without any real infrastructure (G-0015):
   addresses, and the Netlify site id.
 - It ends with teardown (Done-when 9 and 10), so nothing of the proof stays behind.
 
-## Open question
+## Open question (resolved)
 
-- **Q-001** ([how does the NAS pull a private project's backend image?](../decisions/Q-001-how-does-the-nas-pull-a-private-projects-backend-image.md)):
-  a private repository's image is private, and the NAS has to be able to pull it. Either a
-  read-only pull token is added to the environment, or the image is made public. Both are
-  the Engineer's. It blocks only the part of this task's slice where the NAS pulls the
-  image, and so the live proof. T-0007 and T-0008 don't wait for it, and neither does the
-  rest of this slice's code.
+- **Q-001** ([how does the NAS pull a private project's backend image?](../decisions/Q-001-how-does-the-nas-pull-a-private-projects-backend-image.md))
+  is resolved by G-0030: while a repository is private, the NAS pulls its image with a
+  read-only token, `GHCR_PULL_TOKEN`, held as a fifth secret in the environment; a public
+  repository's image is public and needs none. Nothing in this task waits for it any more.
+
+## As built, and open for the architect
+
+What slice 3 built differs from these Notes in four places, and two points remain for
+future tasks. None of them blocks this task.
+
+- **Netlify's app, as built:** `gh api user/installations` needs a GitHub App user token and
+  answers 403 to gh's token, so `create` can't check the app before it starts (step 4 of the
+  sequence above). The `site` job instead reads the app's installation from a site of the
+  account that is already linked through it, or takes `--netlify-installation` (or
+  `netlifyInstallation` in the settings file). Without one it makes the site unlinked and ends
+  with a `Remaining:` line.
+- **Where the pull token lives (for the architect):** the NAS pulls a custom app's images
+  with its own registry credentials, so the token is one NAS-wide `app.registry` entry for
+  `ghcr.io` (`harness-ghcr`), plus `REPO_PASS` in each private project's Watchtower
+  environment for its later pulls. G-0030 says "the app's configuration"; whether that wording
+  or this build changes is the architect's.
+- **Variable scopes:** Netlify's free plan refuses scopes on a site variable, so `BACKEND_URL`
+  (production context only) and the mark `HARNESS_REPOSITORY` have every scope and also reach
+  functions. Neither is a secret; previews and branch deploys still get no `BACKEND_URL`.
+- **Future task: `trustedProxy`.** Behind Funnel, Tailscale's proxy sends `X-Forwarded-For`,
+  but PocketBase counts its sign-in rate limit per address, which is the proxy's for every
+  device until its `trustedProxy` setting names that header. That is a template migration
+  and a decision on trusting the header.
+- **Future task: the outbox policy** (from T-0008): what the app does with a change the
+  backend refuses for good, which now holds up every change behind it.
 
 ## Risks to prove early
 
@@ -548,6 +572,7 @@ One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
 - 2026-11-20 architect: raised Q-001, how the NAS pulls a private project's backend image.
   Handed T-0007 to the developer and T-0008 to the UX designer. This task's own slice waits
   for both, and its live proof for Q-001.
+- 2026-11-20 architect: Q-001 answered by the Engineer (option C), recorded as G-0030: a read-only pull token, `GHCR_PULL_TOKEN`, as a fifth secret while a repository is private; none once it is public. The image pull no longer waits.
 - 2026-11-20 developer: built slice 3 in #17 (0.7.0). `harness infra up <project>` reads
   `backend/funnel.json` from the default branch and refuses a bad list, checks the four
   secrets and the runner (a missing `GHCR_PULL_TOKEN` is a warning: G-0030), starts
