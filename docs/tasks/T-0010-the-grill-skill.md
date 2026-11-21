@@ -7,7 +7,7 @@ depends_on: []              # tasks that must be Done first
 decisions: [G-0007, G-0008, G-0010, G-0012, G-0015, G-0020]
 raised_on: 2026-11-21
 done_on: "2026-11-21"
-result: ["https://github.com/SanderGeraedts/harness/pull/19"]              # PR URLs
+result: ["https://github.com/SanderGeraedts/harness/pull/19", "https://github.com/SanderGeraedts/harness/pull/20"]              # PR URLs
 ---
 
 # Goal
