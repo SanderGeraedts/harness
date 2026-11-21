@@ -716,5 +716,5 @@ One line each, newest last: `- YYYY-MM-DD <role>: <what happened>`.
   Engineer removes the machine in the tailnet's admin console, the throwaway repository and
   its image.
 - 2026-11-21 tester: Merged as 9f6ca58 (#17); v0.7.0 tagged there; the infrastructure repository re-pinned to v0.7.0 through its pull request, a second init said "nothing changed (harness v0.7.0)".
-- 2026-11-21 engineer: said yes to teardown. `harness infra down harness-spinup-proof --confirmed` deleted the Netlify site, the NAS app, its snapshot task and its dataset with every snapshot; the NAS lists neither the app nor the task afterwards, and the site answers 404. Done-when 8 (sync between two devices) was not proven on this project before it was removed.
+- 2026-11-21 engineer: said yes to teardown. `harness infra down harness-spinup-proof --confirmed` deleted the Netlify site, the NAS app, its snapshot task and its dataset with every snapshot; the NAS lists neither the app nor the task afterwards, and the site address no longer resolves. Done-when 8 (sync between two devices) was not proven on this project before it was removed.
 - Remaining: Done-when 8 on a fresh throwaway project; Done-when 10, the Engineer removes the tailnet machine harness-spinup-proof, the repository and its container image.
