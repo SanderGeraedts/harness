@@ -21,6 +21,11 @@
 #   jobs:
 #     merge:
 #       uses: SanderGeraedts/harness/.github/workflows/auto-merge.yml@vX.Y.Z
+#
+# Other workflows that must pass (a project's Backend, say) are named in wait-for and listed
+# under the caller's workflow_run too, so the merge is decided again whenever one of them
+# completes: it waits while one still runs for the pull request's head commit, and never
+# merges when one failed. A workflow that didn't run for the pull request isn't waited for.
 name: Auto-merge (reusable)
 
 on:
@@ -53,6 +58,13 @@ on:
         description: The label a held pull request gets.
         type: string
         default: waits-for-engineer
+      wait-for:
+        description: >-
+          The names of other workflows that must pass when they ran for the pull request's
+          head commit, comma-separated, e.g. Backend. List them under the caller's
+          workflow_run as well.
+        type: string
+        default: ""
 
 jobs:
   merge:
@@ -92,11 +104,39 @@ jobs:
           DRAFT: ${{ steps.pr.outputs.draft }}
           BASE: ${{ steps.pr.outputs.base }}
           HOLD_PATHS: ${{ inputs.hold-paths }}
+          WAIT_FOR: ${{ inputs.wait-for }}
+          TRIGGER: ${{ github.event.workflow_run.name }}
         run: |
           if [ "$DRAFT" = "true" ]; then
             echo "#$PR is a draft: it waits for the tester to mark it ready."
             echo "action=skip" >> "$GITHUB_OUTPUT"
             exit 0
+          fi
+          # Each workflow in wait-for that ran for this head commit must have passed: its
+          # newest run counts. The one that started this run passed, or the job wouldn't run.
+          if [ -n "$WAIT_FOR" ]; then
+            gh api --paginate "repos/$REPO/actions/runs?head_sha=$HEAD_SHA&event=pull_request&per_page=100" \
+              --jq '.workflow_runs[]' | jq -s '.' > "$RUNNER_TEMP/runs.json"
+            IFS=',' read -ra names <<<"$WAIT_FOR"
+            for name in "${names[@]}"; do
+              name=$(sed 's/^ *//; s/ *$//' <<<"$name")
+              [ -z "$name" ] || [ "$name" = "$TRIGGER" ] && continue
+              state=$(jq -r --arg n "$name" \
+                '[.[] | select(.name == $n)] | max_by(.run_number) | if . == null then "none" else "\(.status) \(.conclusion // "")" end' \
+                "$RUNNER_TEMP/runs.json")
+              case "$state" in
+                none) echo "$name didn't run for this pull request: not waiting for it." ;;
+                "completed success") echo "$name passed." ;;
+                completed*)
+                  echo "#$PR is not merged: $name ended ${state#completed }."
+                  echo "action=skip" >> "$GITHUB_OUTPUT"
+                  exit 0 ;;
+                *)
+                  echo "#$PR waits for $name, which is still running; its end decides again."
+                  echo "action=skip" >> "$GITHUB_OUTPUT"
+                  exit 0 ;;
+              esac
+            done
           fi
           # A pull request stacked on another branch waits until its base merges and GitHub
           # retargets it.
@@ -138,7 +178,12 @@ jobs:
           BRANCH: ${{ steps.pr.outputs.branch }}
         run: |
           # --match-head-commit: refuse if the pull request moved on after this CI run.
-          gh pr merge "$PR" --repo "$REPO" --squash --match-head-commit "$HEAD_SHA"
+          # With wait-for, two runs may decide at once: the second finds it merged.
+          if ! gh pr merge "$PR" --repo "$REPO" --squash --match-head-commit "$HEAD_SHA"; then
+            [ "$(gh pr view "$PR" --repo "$REPO" --json state --jq .state)" = "MERGED" ] || exit 1
+            echo "#$PR was merged by another run."
+            exit 0
+          fi
           gh api -X DELETE "repos/$REPO/git/refs/heads/$BRANCH" >/dev/null 2>&1 || true
 
       # Never fails the job: the merge has happened, and a project that hasn't given its CI

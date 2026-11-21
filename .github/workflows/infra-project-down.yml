@@ -1,24 +1,45 @@
-# Reusable: teardown of a project's hosting and backend (G-0028). Built in T-0004 (0.7.0);
-# until then it only says so, so that the `project-down.yml` that `harness infra init`
-# generates is a valid caller from the start. It runs on GitHub's runner and touches nothing.
+# Reusable: teardown of a project's hosting and backend (G-0028). Called by the
+# `project-down.yml` that `harness infra init` generates in the Engineer's private
+# infrastructure repository; started only by `harness infra down <project> --confirmed`,
+# after the Engineer's yes in chat (G-0027).
+#
+#   inspect  the NAS's runner  refuses before anything is deleted when a dataset or an app of
+#                              the project's name exists that spin-up didn't make
+#   site     GitHub's runner   deletes the Netlify site, only when it carries spin-up's mark
+#                              and builds from the repository given
+#   backend  the NAS's runner  deletes the app, the snapshot task, and the dataset (marked
+#                              harness:project=<project>, directly under the parent dataset
+#                              for apps) with every snapshot of it
+#
+# Every job refuses unless `confirmation` is the project's name. The machine in the tailnet,
+# the repository and its image stay: only the Engineer removes those.
 name: "Infrastructure project down (reusable)"
 
 on:
   workflow_call:
     inputs:
       environment:
+        description: "The GitHub environment that holds the secrets."
         type: string
         default: Prod
       harness-ref:
+        description: "The harness tag the caller is pinned to; the jobs run the harness at it."
         type: string
         required: true
       project:
+        description: "The project's name."
+        type: string
+        required: true
+      repository:
+        description: "Its repository, as owner/name."
         type: string
         required: true
       confirmation:
+        description: "The project's name once more, as the Engineer's yes."
         type: string
         required: true
       request-id:
+        description: "Names the run, so the command that started it finds it again."
         type: string
         default: ""
 
@@ -26,10 +47,95 @@ permissions:
   contents: read
 
 jobs:
-  down:
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
+  inspect:
+    runs-on: [self-hosted, harness-nas]
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 15
+    concurrency:
+      group: harness-nas
+      cancel-in-progress: false
     steps:
-      - run: |
-          echo "::error::Teardown arrives with harness 0.7.0 (T-0004). Nothing was done."
-          exit 1
+      - uses: actions/checkout@v5
+        with:
+          repository: SanderGeraedts/harness
+          ref: ${{ inputs.harness-ref }}
+          path: harness
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: harness/.nvmrc
+      # After Node: pnpm's installer runs on it.
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: harness/package.json
+      - name: "Install the harness's dependencies"
+        working-directory: harness
+        run: pnpm install --frozen-lockfile --prod
+      - name: "harness infra job down-inspect"
+        env:
+          TRUENAS_API_KEY: ${{ secrets.TRUENAS_API_KEY }}
+          PROJECT: ${{ inputs.project }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: node harness/bin/harness.mjs infra job down-inspect
+
+  site:
+    needs: inspect
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: SanderGeraedts/harness
+          ref: ${{ inputs.harness-ref }}
+          path: harness
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: harness/.nvmrc
+      # After Node: pnpm's installer runs on it.
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: harness/package.json
+      - name: "Install the harness's dependencies"
+        working-directory: harness
+        run: pnpm install --frozen-lockfile --prod
+      - name: "harness infra job down-site"
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          PROJECT: ${{ inputs.project }}
+          REPOSITORY: ${{ inputs.repository }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: node harness/bin/harness.mjs infra job down-site
+
+  backend:
+    needs: site
+    runs-on: [self-hosted, harness-nas]
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 20
+    concurrency:
+      group: harness-nas
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: SanderGeraedts/harness
+          ref: ${{ inputs.harness-ref }}
+          path: harness
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: harness/.nvmrc
+      # After Node: pnpm's installer runs on it.
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: harness/package.json
+      - name: "Install the harness's dependencies"
+        working-directory: harness
+        run: pnpm install --frozen-lockfile --prod
+      - name: "harness infra job down-backend"
+        env:
+          TRUENAS_API_KEY: ${{ secrets.TRUENAS_API_KEY }}
+          PROJECT: ${{ inputs.project }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: node harness/bin/harness.mjs infra job down-backend

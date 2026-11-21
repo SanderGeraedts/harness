@@ -244,12 +244,26 @@ try {
   writeFileSync(join(elsewhere, '.harness', 'engineers'), 'engineer-of-another-project\n');
   const infraBin = `"${process.execPath}" "${join(installed, 'bin', 'harness.mjs')}"`;
   // What only reads (check, status) is refused a look; the rest a change.
-  for (const [command, verb] of [['infra init', 'change'], ['infra init --repo someone/infra', 'change'], ['infra runner install', 'change'], ['nas --remote core.ping', 'change'], ['infra check', 'look at'], ['infra runner status', 'look at']])
+  for (const [command, verb] of [['infra init', 'change'], ['infra init --repo someone/infra', 'change'], ['infra runner install', 'change'], ['nas --remote core.ping', 'change'], ['infra up spun-up', 'change'], ['infra down spun-up', 'change'], ['infra down spun-up --confirmed', 'change'], ['infra check', 'look at'], ['infra runner status', 'look at']])
     fails(`${infraBin} ${command}`, new RegExp(`only the Engineer may ${verb} the infrastructure \\(G-0026\\)`), { cwd: elsewhere, env: { ...noInfra, HARNESS_INFRA_REPO: 'someone/infra' } });
 
   step('Claude Code asks a human before a workflow is started with confirmed=true directly');
   const ask = JSON.parse(get('.claude/settings.json')).permissions.ask;
   for (const rule of ['Bash(*--confirmed*)', 'PowerShell(*--confirmed*)', 'Bash(*confirmed=true*)', 'PowerShell(*confirmed=true*)']) assert.ok(ask.includes(rule), `the ask rules hold ${rule}`);
+
+  step('Claude Code asks a human before the teardown workflow is started directly, in any spelling');
+  // An ask rule's * matches anything; a command it matches is asked about, in either shell.
+  const asks = (tool, command) => ask.some((rule) => rule.startsWith(`${tool}(`) && new RegExp(`^${rule.slice(tool.length + 1, -1).split('*').map((p) => p.replace(/[.+?^${}()|[]\]/g, '\$&')).join('.*')}$`, 's').test(command));
+  for (const command of [
+    'gh workflow run project-down.yml --repo owner/infra -f project=p -f repository=owner/p -f confirmation=p',
+    'gh workflow run project-down --repo owner/infra -f project=p -f confirmation=p',
+    'GH_TOKEN=x gh api -X POST repos/owner/infra/actions/workflows/project-down.yml/dispatches -f ref=main -f "inputs[project]=p" -f "inputs[confirmation]=p"',
+    'gh workflow run 123456 --repo owner/infra -f project=p -f confirmation=p',
+    'pnpm exec harness infra down p --confirmed',
+  ])
+    for (const tool of ['Bash', 'PowerShell']) assert.ok(asks(tool, command), `${tool} asks before: ${command}`);
+  // What only lists, and spin-up, ask nobody.
+  for (const command of ['pnpm exec harness infra down p', 'pnpm exec harness infra up p']) assert.ok(!asks('Bash', command), `no ask for: ${command}`);
 
   step('harness infra and nas --remote stop with a plain message when no infrastructure repository is set');
   // As the Engineer of this project, told who is signed in: CI has no gh account.
@@ -259,16 +273,50 @@ try {
 import { remoteNas } from ${JSON.stringify(pathToFileURL(join(installed, 'lib', 'infra.mjs')).href)};
 const deps = { getLogin: () => 'engineer-one', gh: () => { throw new Error('gh must not be called'); }, interactive: false };
 const codes = [];
-for (const args of [['init'], ['check'], ['runner', 'install'], ['runner', 'status']]) codes.push(await main(args, process.cwd(), deps));
+for (const args of [['init'], ['check'], ['runner', 'install'], ['runner', 'status'], ['up', 'spun-up'], ['down', 'spun-up'], ['down', 'spun-up', '--confirmed']]) codes.push(await main(args, process.cwd(), deps));
 codes.push(await remoteNas({ method: 'core.ping', params: [] }, { cwd: process.cwd(), ...deps }));
 console.log('codes', codes.join(','));
 `,
   );
   const unset = sh(`"${process.execPath}" "${join(work, 'infra-unset.mjs')}"`, { env: noInfra });
-  assert.match(unset.out, /^codes 1,1,1,1,1$/m, unset.out);
-  assert.equal(unset.out.match(/No private infrastructure repository is set \(G-0026\)\. Set it once with harness infra init --repo <owner>\/<name>, or set HARNESS_INFRA_REPO\./g)?.length, 5, unset.out);
+  assert.match(unset.out, /^codes 1,1,1,1,1,1,1,1$/m, unset.out);
+  assert.equal(unset.out.match(/No private infrastructure repository is set \(G-0026\)\. Set it once with harness infra init --repo <owner>\/<name>, or set HARNESS_INFRA_REPO\./g)?.length, 8, unset.out);
   assert.doesNotMatch(unset.out, /gh must not be called/);
   assert.deepEqual(readdirSync(configDir), [], 'nothing was remembered');
+
+  step('harness infra down without --confirmed lists what would go, exits 2 and starts nothing');
+  // As the Engineer, with admin rights on a made-up infrastructure repository; gh only answers
+  // who may, and any other call would fail the step.
+  writeFileSync(
+    join(work, 'infra-down.mjs'),
+    `import { main } from ${JSON.stringify(pathToFileURL(join(installed, 'lib', 'infra.mjs')).href)};
+const gh = (args) => {
+  if (args[0] === 'repo' && args[1] === 'view') return JSON.stringify({ viewerPermission: 'ADMIN', visibility: 'PRIVATE' });
+  throw new Error('nothing may be started: gh ' + args.join(' '));
+};
+console.log('code', await main(['down', 'spun-up'], process.cwd(), { getLogin: () => 'engineer-one', gh }));
+`,
+  );
+  const listed = sh(`"${process.execPath}" "${join(work, 'infra-down.mjs')}"`, { env: { ...noInfra, HARNESS_INFRA_REPO: 'engineer-one/infra' } });
+  assert.match(listed.out, /^code 2$/m, listed.out);
+  assert.match(listed.out, /harness infra down spun-up would delete, for good:\n {2}- the Netlify site that builds from engineer-one\/spun-up[^\n]*\n {2}- on the NAS: the app spun-up, its snapshot task, and its dataset[^\n]*with every snapshot of it\n/);
+  assert.match(listed.out, /with their yes, run it again with --confirmed\./);
+  assert.doesNotMatch(listed.out, /nothing may be started/);
+
+  step('the reusable infrastructure workflows: a job that uses a secret names the environment, only the NAS jobs run on its runner, and every caller passes what they take');
+  const { parse } = await import('yaml');
+  for (const [file, nasJobs] of Object.entries({ 'infra-nas.yml': ['nas'], 'infra-check.yml': ['check'], 'infra-project-up.yml': ['backend'], 'infra-project-down.yml': ['inspect', 'backend'] })) {
+    const doc = parse(readFileSync(join(root, '.github', 'workflows', file), 'utf8'));
+    for (const [id, j] of Object.entries(doc.jobs)) {
+      if (/secrets\./.test(JSON.stringify(j))) assert.equal(j.environment, '${{ inputs.environment }}', `${file}: ${id} uses a secret`);
+      assert.deepEqual(j['runs-on'], nasJobs.includes(id) ? ['self-hosted', 'harness-nas'] : 'ubuntu-latest', `${file}: ${id}`);
+    }
+  }
+  for (const f of callers) {
+    const job = Object.values(parse(readFileSync(join(infraDir, f), 'utf8')).jobs)[0];
+    const reusable = parse(readFileSync(join(root, '.github', 'workflows', job.uses.match(/workflows\/(infra-[a-z-]+\.yml)@/)[1]), 'utf8'));
+    assert.deepEqual(Object.keys(job.with).sort(), Object.keys(reusable.on.workflow_call.inputs).sort(), f);
+  }
 
   step('the pre-push hook refuses the default branch and lets a feature branch through');
   const hook = (ref) => sh(`printf 'refs/heads/x 1 ${ref} 0\\n' | sh .githooks/pre-push`);

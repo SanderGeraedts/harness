@@ -188,13 +188,58 @@ describe('infra: the reusable workflows', () => {
     assert.equal(declaredInputs(workflow('infra-nas.yml')).confirmed.required, false);
   });
 
-  it('the spin-up stubs touch nothing and run on GitHub\'s runner', () => {
-    for (const name of ['infra-project-up.yml', 'infra-project-down.yml']) {
-      const text = workflow(name);
-      assert.match(text, /runs-on: ubuntu-latest/);
-      assert.doesNotMatch(text, /secrets\.|self-hosted/);
-      assert.match(text, /exit 1/);
-    }
+  // The jobs that reach the NAS, by workflow; every other job runs on GitHub's runner.
+  const NAS_JOBS = { 'infra-nas.yml': ['nas'], 'infra-check.yml': ['check'], 'infra-project-up.yml': ['backend'], 'infra-project-down.yml': ['inspect', 'backend'] };
+
+  for (const [name, nasJobs] of Object.entries(NAS_JOBS))
+    it(`${name}: a job that uses a secret names the environment, and only ${nasJobs.join(' and ')} run${nasJobs.length > 1 ? '' : 's'} on the NAS's runner`, () => {
+      const doc = parseYaml(workflow(name), name);
+      for (const [id, j] of Object.entries(doc.jobs)) {
+        const text = JSON.stringify(j);
+        if (/secrets\./.test(text)) assert.equal(j.environment, '${{ inputs.environment }}', `${name}: ${id} uses a secret`);
+        for (const s of text.match(/secrets\.(\w+)/g) ?? []) assert.ok([...SECRETS, ...Object.keys(LATER_SECRETS)].includes(s.slice(8)), `${name}: ${id} uses ${s}`);
+        if (nasJobs.includes(id)) {
+          assert.deepEqual(j['runs-on'], ['self-hosted', 'harness-nas'], `${name}: ${id}`);
+          assert.deepEqual(j.concurrency, { group: 'harness-nas', 'cancel-in-progress': false }, `${name}: ${id} is one NAS job at a time`);
+        } else assert.equal(j['runs-on'], 'ubuntu-latest', `${name}: ${id} runs on GitHub's runner`);
+        // The harness at the caller's tag, and every input as a variable, never in a script.
+        const checkout = j.steps.find((s) => s.uses === 'actions/checkout@v5');
+        assert.deepEqual(checkout.with, { repository: 'SanderGeraedts/harness', ref: '${{ inputs.harness-ref }}', path: 'harness', 'persist-credentials': false }, `${name}: ${id}`);
+        for (const s of j.steps.filter((x) => x.run)) assert.doesNotMatch(s.run, /\$\{\{/, `${name}: ${id}: ${s.run}`);
+        const harness = j.steps.filter((s) => /harness\.mjs infra job|harness\.mjs nas/.test(s.run ?? ''));
+        assert.equal(harness.length, 1, `${name}: ${id} runs one harness job`);
+      }
+    });
+
+  it('infra-project-up: the site first, then the address and the backend side by side, then the checks, each only when it can', () => {
+    const doc = parseYaml(workflow('infra-project-up.yml'), 'infra-project-up.yml');
+    assert.deepEqual(Object.keys(doc.jobs), ['site', 'address', 'backend', 'checks']);
+    assert.equal(doc.jobs.site.needs, undefined);
+    assert.equal(doc.jobs.address.needs, undefined);
+    assert.equal(doc.jobs.address.if, 'inputs.sync');
+    assert.equal(doc.jobs.backend.needs, 'site');
+    assert.equal(doc.jobs.backend.if, 'inputs.sync');
+    assert.deepEqual(doc.jobs.checks.needs, ['site', 'address', 'backend']);
+    assert.match(doc.jobs.checks.if, /needs\.site\.outputs\.linked == 'true'/);
+    assert.match(doc.jobs.checks.if, /!inputs\.sync \|\| \(needs\.address\.outputs\.ready == 'true' && needs\.backend\.outputs\.ready == 'true'\)/);
+    // The address node is tagged tag:harness, with the OAuth client.
+    const ts = doc.jobs.address.steps[0];
+    assert.equal(ts.uses, 'tailscale/github-action@v4');
+    assert.equal(ts.with.tags, 'tag:harness');
+    // The backend gets the pull token, the site's address and the inputs as variables.
+    const env = doc.jobs.backend.steps.at(-1).env;
+    for (const k of ['TRUENAS_API_KEY', 'TS_OAUTH_CLIENT_ID', 'TS_OAUTH_SECRET', 'GHCR_PULL_TOKEN', 'PROJECT', 'REPOSITORY', 'PRIVATE', 'FUNNEL_PATHS', 'SITE_URL']) assert.ok(env[k], k);
+    assert.equal(env.SITE_URL, '${{ needs.site.outputs.site-url }}');
+    assert.equal(doc.jobs.checks.steps.at(-1).env.BACKEND_URL, '${{ needs.address.outputs.backend-url }}');
+  });
+
+  it('infra-project-down: inspects the NAS before anything goes, then the site, then the backend, each with the confirmation', () => {
+    const doc = parseYaml(workflow('infra-project-down.yml'), 'infra-project-down.yml');
+    assert.deepEqual(Object.keys(doc.jobs), ['inspect', 'site', 'backend']);
+    assert.equal(doc.jobs.site.needs, 'inspect');
+    assert.equal(doc.jobs.backend.needs, 'site');
+    for (const j of Object.values(doc.jobs)) assert.equal(j.steps.at(-1).env.CONFIRMATION, '${{ inputs.confirmation }}');
+    assert.equal(declaredInputs(workflow('infra-project-down.yml')).confirmation.required, true);
   });
 });
 
@@ -390,6 +435,20 @@ describe('infra: a run and its result', () => {
     const { run, result } = await runWorkflow({ repo: 'o/r', workflow: 'nas.yml', inputs: { method: 'core.ping', params: '[]' }, gh, wait: async () => {} });
     assert.match(calls[0], /^workflow run nas\.yml --repo o\/r -f method=core\.ping -f params=\[\] -f request-id=[0-9a-f]{16}$/);
     assert.equal(run.databaseId, 42);
+    assert.deepEqual(result, { code: 0, stdout: '"pong"', stderr: '' });
+  });
+
+  it('lets a few failed looks at the run pass, as a network hiccup', async () => {
+    const { gh: inner } = fakeRun();
+    let fails = 0;
+    const gh = (args) => {
+      if (args[0] === 'run' && fails < 3) {
+        fails++;
+        throw new Error('gh run list failed: EOF');
+      }
+      return inner(args);
+    };
+    const { result } = await runWorkflow({ repo: 'o/r', workflow: 'nas.yml', gh, wait: async () => {} });
     assert.deepEqual(result, { code: 0, stdout: '"pong"', stderr: '' });
   });
 

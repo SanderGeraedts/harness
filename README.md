@@ -45,7 +45,7 @@ Every task goes through a pipeline, and each role writes its result in the task 
 The project is an existing git repository with a `package.json`, using pnpm.
 
 ```sh
-pnpm add -D github:SanderGeraedts/harness#v0.6.0
+pnpm add -D github:SanderGeraedts/harness#v0.7.0
 pnpm exec harness init <engineer-github-login>...
 pnpm exec harness check
 ```
@@ -85,7 +85,7 @@ concurrency:
 
 jobs:
   checks:
-    uses: SanderGeraedts/harness/.github/workflows/ci.yml@v0.6.0
+    uses: SanderGeraedts/harness/.github/workflows/ci.yml@v0.7.0
     # with:
     #   checks: |
     #     pnpm run typecheck
@@ -120,11 +120,12 @@ permissions:
 
 jobs:
   merge:
-    uses: SanderGeraedts/harness/.github/workflows/auto-merge.yml@v0.6.0
+    uses: SanderGeraedts/harness/.github/workflows/auto-merge.yml@v0.7.0
     # with:
     #   ci-workflow: ci.yml
     #   backend-workflow: backend.yml
     #   backend-paths: '^(backend/|\.github/workflows/backend\.yml)'
+    #   wait-for: CI,Backend      # and workflows: [CI, Backend] above
 ```
 
 The CI workflow installs with pnpm, runs `harness check`, then the project's own checks. A
@@ -149,6 +150,7 @@ draft, and then starts CI on the default branch. Its inputs, all optional:
 | `backend-workflow`, `backend-paths` | none | a workflow file to start after merging a pull request that touched paths matching the regular expression, e.g. the backend's publish |
 | `hold-paths` | none | a regular expression; a pull request that touches a matching path is labelled as waiting for the Engineer instead of merged |
 | `hold-label` | `waits-for-engineer` | the label a held pull request gets |
+| `wait-for` | none | other workflows, by name and comma-separated, that must pass when they ran for the pull request's head, e.g. `CI,Backend`. List them under `workflow_run` too: the merge is decided again when each completes, waits while one still runs, and never happens when one failed. A workflow that didn't run for the pull request isn't waited for |
 
 Starting a workflow needs the `actions: write` permission in the caller, and the started
 workflow needs a `workflow_dispatch:` trigger. When CI can't be started the merge still
@@ -176,7 +178,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: SanderGeraedts/harness/.github/workflows/backend.yml@v0.6.0
+    uses: SanderGeraedts/harness/.github/workflows/backend.yml@v0.7.0
 ```
 
 Publishing is a job of its own: the only one that takes `packages: write`, and it runs on
@@ -211,7 +213,7 @@ when the checks passed.
 ## Adopt, in a repository that already has registries
 
 ```sh
-pnpm add -D github:SanderGeraedts/harness#v0.6.0
+pnpm add -D github:SanderGeraedts/harness#v0.7.0
 pnpm exec harness adopt
 pnpm exec harness adopt --write <engineer-github-login>...
 pnpm exec harness sync
@@ -297,6 +299,7 @@ all there is, and only `--purpose` is required.
 | `--private`, `--public` | the repository's visibility; default private |
 | `--git-name <name>`, `--git-email <address>` | the author of the first commit, also set as the new repository's own `user.name` and `user.email`. Default: whatever git is configured with on this machine |
 | `--no-github` | stop after the first local commit |
+| `--no-infra` | don't spin up the site and the backend; run `harness infra up <name>` later |
 | `--harness-ref <ref>` | the harness tag, branch or commit to install and to pin the workflows to; default the tag of the harness that runs the command |
 | `--harness-package <spec>` | install the harness from this package spec instead; for tests |
 
@@ -325,6 +328,12 @@ What it does, in order:
    the default branch a project ever gets: the first commit of an empty repository, before
    a ruleset can exist (G-0029). The project's own pre-push hook is not used for it.
 6. Waits for the first CI run and, when it is green, runs `harness protect "checks / checks"`.
+7. Unless `--no-infra`: for a project that syncs, waits for the first `backend` run on
+   `main`, which publishes the image; then runs `harness infra up <name>` (see *Spin-up and
+   teardown*) and ends with `Done.` and the site's address. Before step 1 it checks that the
+   infrastructure is ready: the infrastructure repository is set, its environment has the
+   four secrets, and for a project that syncs the runner on the NAS is online. Otherwise it
+   stops before writing anything and says which one-time step is missing.
 
 The push carries workflow files, so `gh`'s token needs the `workflow` scope
 (`gh auth refresh -s workflow`), unless git is set up to push to GitHub another way (a
@@ -389,14 +398,29 @@ to refresh the lockfiles new projects start from. `node scripts/make-project.mjs
 ## Update
 
 ```sh
-pnpm add -D github:SanderGeraedts/harness#v0.6.0
+pnpm add -D github:SanderGeraedts/harness#v0.7.0
 pnpm exec harness sync
-pnpm exec harness changes v0.5.0 v0.6.0
+pnpm exec harness changes v0.6.0 v0.7.0
 ```
 
 Bump the tag in both workflows in the same pull request, and put the output of `changes` in
 its description: the global decisions that were added, changed or replaced. Per decision the
 project's architect opens a task to conform or records an overruling decision.
+
+From 0.6.0 to 0.7.0, also in that pull request:
+
+- A project that syncs: in `.github/workflows/auto-merge.yml`, set `workflows: [CI,
+  Backend]` and add `wait-for: CI,Backend` under `with:`, so a pull request whose `Backend`
+  run failed no longer merges. A new project gets this from the template.
+- `sync` adds two ask rules to `.claude/settings.json` for each of Bash and PowerShell:
+  `*project-down*` and `*confirmation=*`, so a teardown workflow started by hand asks a
+  human just as `harness infra down --confirmed` does. Commit what it writes.
+- Nothing else changes for callers of `ci.yml`, `auto-merge.yml` and `backend.yml`.
+- The Engineer runs `harness infra init` once more: `project-up.yml` gains the input
+  `private` and `project-down.yml` the input `repository`, and both callers now do the work.
+  New are `harness infra up` and `harness infra down`, and `create` ends by spinning up the
+  site and the backend (`--no-infra` to leave that out). G-0030 adds the secret
+  `GHCR_PULL_TOKEN`, needed for a private project's backend.
 
 From 0.5.0 to 0.6.0, also in that pull request:
 
@@ -446,13 +470,14 @@ Run from the project root with `pnpm exec harness <command>`.
 | `overrules` | lists the project decisions that overrule global ones |
 | `changes <fromTag> [toTag]` | lists the global decisions added, changed or replaced after `fromTag`, up to `toTag` (default: the installed version) |
 | `waiting [dir...]` | lists what waits on a human, for one or several project folders: open questions, tasks' `Remaining:` lines, and open GitHub issues that are assigned. Skips issues when `gh` is missing |
-| `sync` | writes or refreshes the generated files: `.claude/agents/*.md`, `.githooks/pre-push`, the push rules and the `--confirmed` and `confirmed=true` ask rules in `.claude/settings.json` (merged into the project's own), the registry README (keeping its project section) and the templates |
+| `sync` | writes or refreshes the generated files: `.claude/agents/*.md`, `.githooks/pre-push`, the push rules and the `--confirmed`, `confirmed=true`, `project-down` and `confirmation=` ask rules in `.claude/settings.json` (merged into the project's own), the registry README (keeping its project section) and the templates |
 | `init [login...] [--default-branch <name>]` | sets an existing repository up, then runs `sync` |
 | `adopt [--write] [login...] [--default-branch <name>]` | for a repository that already has registries: reports what is there, what would be added, which generated files differ, and which project decisions look like a global one; changes nothing. With `--write` it adds what is missing and overwrites nothing |
 | `hooks` | points git at `.githooks`; the project's `prepare` script |
 | `protect <check>... [--repo owner/name] [--dry-run]` | creates or updates the ruleset on the default branch through `gh api`: a pull request with 0 approvals, the named checks required (as reported by GitHub Actions), no deletion, no force-push, no bypass actors. Found again by its name, so it is safe to repeat |
 | `nas [--remote] <method> [params-json] [--job] [--confirmed]` | calls the TrueNAS API; `--remote` through the workflow on the runner on the NAS. See *The NAS tool* |
 | `infra init \| check \| runner install \| runner status` | the private infrastructure repository and the runner on the NAS, for the Engineer only; see *The infrastructure repository* |
+| `infra up <project> \| down <project> [--confirmed]` | spin a project's site and backend up, or remove them, for the Engineer only; see *Spin-up and teardown* |
 | `create <name> [options]` | spins up a new project from the template, for the Engineer only; see *Create a new project* |
 
 ## The infrastructure repository
@@ -489,9 +514,8 @@ pnpm exec harness infra check                        # proves the whole chain
   `--harness-ref` pins another tag or commit than the running harness's.
 - **The generated files:** four thin callers, each `on: workflow_dispatch`, that call the
   harness's reusable workflows at the pinned tag with `secrets: inherit` and the
-  environment's name (`nas.yml`, `check.yml`, and `project-up.yml` and `project-down.yml`,
-  which do nothing until spin-up arrives in 0.7.0), and a README. Nothing in them names a
-  host, an address, a dataset or a token.
+  environment's name (`nas.yml`, `check.yml`, `project-up.yml` and `project-down.yml`),
+  and a README. Nothing in them names a host, an address, a dataset or a token.
 - **The runner:** a self-hosted GitHub Actions runner, the official image at a pinned
   version, as a custom app on the NAS, registered to the repository only and labelled
   `harness-nas` (G-0027). Its own dataset under the parent dataset for apps keeps its
@@ -512,6 +536,46 @@ pnpm exec harness infra check                        # proves the whole chain
 The reusable workflows, `infra-nas.yml` and `infra-check.yml`, run one job on
 `[self-hosted, harness-nas]` in the environment they are given, check out the harness at the
 tag given, and run one `harness` command. One NAS job runs at a time.
+
+## Spin-up and teardown
+
+`harness infra up <project>` puts a project online (G-0028), from any machine, the Engineer
+only. `create` runs it as its last step; run it again by hand to finish what a human step
+held up, or to repair. Every step first looks for what is there and says "already there".
+
+```sh
+pnpm exec harness infra up my-project                 # the repository is <you>/my-project
+pnpm exec harness infra up my-project --repo owner/name --netlify-installation 12345
+pnpm exec harness infra down my-project               # lists what would go; exits 2
+pnpm exec harness infra down my-project --confirmed   # after the Engineer's yes in chat
+```
+
+It reads `backend/funnel.json` from the repository's default branch (a project without it
+has no backend), refuses a list with anything but paths under `/api/`, or one that opens
+`/api/` whole, the admin screen or the superusers, and checks the environment's secrets and
+the runner. Then it starts `project-up.yml` and prints what each job did:
+
+| Job | Runs on | Does |
+| --- | --- | --- |
+| `site` | GitHub's runner | finds or creates the Netlify site, named after the project (with a short suffix when Netlify has the name), marked with the site variable `HARNESS_REPOSITORY`, and links it to the repository through Netlify's GitHub App, with deploy previews |
+| `address` | GitHub's runner | joins the tailnet for a moment as a node tagged `tag:harness`, checks that MagicDNS, HTTPS certificates and Funnel are on for that tag, and works out the backend's address |
+| `backend` | the runner on the NAS | the dataset `<parent>/<project>` marked `harness:project=<project>`, with `pb_data` and `tailscale`; the snapshot task (every hour, kept two weeks, G-0023) and a first snapshot; for a private repository the pull token (G-0030); the app: a Tailscale sidecar with Funnel on the allowed paths only and the admin screen on port 8443 for the tailnet, PocketBase at `ghcr.io/<owner>/<project>-backend:stable` with CORS for the site only, and Watchtower for that one container. A one-use auth key for the first start, then the app is updated without it |
+| `checks` | GitHub's runner | from outside the tailnet: `/api/health` is 200, the admin screen and the superuser sign-in are 404, the admin port doesn't answer, CORS answers the site's origin and no other. Then `BACKEND_URL` for the production context only (G-0019), a production build, and the site: it serves the app, its headers let it reach the backend, and its bundle holds the address |
+
+The output names the site's address and no other. A step a human must take (the secret
+`GHCR_PULL_TOKEN`, Funnel for `tag:harness` in the tailnet policy, Netlify's GitHub App) ends
+the run with a `Remaining:` line that says what to do; run `infra up` again after it. The
+Netlify app's installation is read from a site of the account that is already linked
+through it, or given with `--netlify-installation` (or `netlifyInstallation` in the settings
+file). A new backend has no superuser and no user: the Engineer makes them, from a device on
+the tailnet.
+
+`harness infra down <project>` lists what it would delete and exits 2. With `--confirmed`,
+after the Engineer's yes in chat (G-0027), it starts `project-down.yml`, which first refuses
+when a dataset or app of that name exists that spin-up didn't make, then deletes the site
+(only when it carries the mark and builds from that repository), the app, the snapshot task
+and the dataset with every snapshot of it. It ends with what only the Engineer can remove:
+the machine in the tailnet's admin console, the repository and its container image.
 
 ## The NAS tool
 

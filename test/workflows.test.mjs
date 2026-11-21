@@ -1,10 +1,14 @@
 // The workflows can't run here, so these tests hold on to what callers rely on: the inputs
 // and their defaults, the triggers, and that the README's examples match them.
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, it } from 'node:test';
+import { after, describe, it } from 'node:test';
 import { HARNESS_ROOT, harnessVersion } from '../lib/paths.mjs';
+import { cleanUp, tempDir } from './helpers.mjs';
+
+after(cleanUp);
 
 const text = (rel) => readFileSync(join(HARNESS_ROOT, rel), 'utf8').replace(/\r\n/g, '\n');
 const workflow = (name) => text(`.github/workflows/${name}`);
@@ -46,7 +50,8 @@ describe('the reusable auto-merge workflow', () => {
 
   it('takes the CI workflow file to start, ci.yml by default, next to the earlier inputs', () => {
     const found = inputs(merge);
-    assert.deepEqual(Object.keys(found), ['ci-workflow', 'backend-workflow', 'backend-paths', 'hold-paths', 'hold-label']);
+    assert.deepEqual(Object.keys(found), ['ci-workflow', 'backend-workflow', 'backend-paths', 'hold-paths', 'hold-label', 'wait-for']);
+    assert.equal(found['wait-for'].default, '');
     assert.deepEqual(found['ci-workflow'], { type: 'string', default: 'ci.yml' });
     assert.equal(found['backend-workflow'].default, '');
     assert.equal(found['hold-label'].default, 'waits-for-engineer');
@@ -64,6 +69,43 @@ describe('the reusable auto-merge workflow', () => {
 
   it('acts only on a CI run for a pull request, so the run it starts never loops back', () => {
     assert.match(merge, /github\.event\.workflow_run\.event == 'pull_request' &&/);
+  });
+
+  it('with wait-for: skips while a named workflow still runs for the head, or when it failed, and merges only after', () => {
+    const decide = merge.slice(merge.indexOf('- name: Decide'), merge.indexOf('- name: Hold for the Engineer'));
+    assert.match(decide, /WAIT_FOR: \$\{\{ inputs\.wait-for \}\}\n/);
+    assert.match(decide, /actions\/runs\?head_sha=\$HEAD_SHA&event=pull_request/);
+    // The checks come before the files are read and before the decision to merge.
+    assert.ok(decide.indexOf('if [ -n "$WAIT_FOR" ]') < decide.indexOf('action=merge'));
+    assert.match(decide, /"completed success"\) echo "\$name passed\." ;;/);
+    assert.match(decide, /completed\*\)\n\s+echo "#\$PR is not merged: \$name ended/);
+    assert.match(decide, /\*\)\n\s+echo "#\$PR waits for \$name, which is still running/);
+    // A workflow that didn't run for the pull request is not waited for.
+    assert.match(decide, /none\) echo "\$name didn't run for this pull request: not waiting for it\." ;;/);
+  });
+
+  it('the decision about which runs count works, run with bash and jq on sample runs', { skip: spawnSync('bash', ['-c', 'command -v jq']).status !== 0 && 'needs bash and jq' }, () => {
+    const script = merge.slice(merge.indexOf('          if [ -n "$WAIT_FOR" ]; then'), merge.indexOf('          # A pull request stacked on another branch')).replace(/^ {10}/gm, '');
+    const decide = (runs, waitFor, trigger = 'CI') => {
+      const dir = tempDir();
+      // gh, as --paginate --jq '.workflow_runs[]' prints them: one run per line.
+      writeFileSync(join(dir, 'gh'), `#!/usr/bin/env bash\ncat <<'JSON'\n${runs.map((r) => JSON.stringify(r)).join('\n')}\nJSON\n`);
+      chmodSync(join(dir, 'gh'), 0o755);
+      const r = spawnSync('bash', ['-c', `set -e\nexport PATH="$FAKE_BIN:$PATH"\n${script}\necho "fell through"`], {
+        encoding: 'utf8',
+        env: { ...process.env, FAKE_BIN: dir.replaceAll('\\', '/'), WAIT_FOR: waitFor, TRIGGER: trigger, RUNNER_TEMP: dir.replaceAll('\\', '/'), GITHUB_OUTPUT: join(dir, 'out').replaceAll('\\', '/'), REPO: 'o/r', HEAD_SHA: 'abc', PR: '7' },
+      });
+      return `${r.stdout}${r.stderr}${existsSync(join(dir, 'out')) ? readFileSync(join(dir, 'out'), 'utf8') : ''}`;
+    };
+    const run = (name, status, conclusion, n) => ({ name, status, conclusion, run_number: n });
+    assert.match(decide([run('CI', 'completed', 'success', 1)], 'CI,Backend'), /Backend didn't run for this pull request[\s\S]*fell through/);
+    assert.match(decide([run('Backend', 'in_progress', null, 3)], 'CI,Backend'), /waits for Backend, which is still running[\s\S]*action=skip/);
+    assert.match(decide([run('Backend', 'completed', 'failure', 3)], 'CI,Backend'), /not merged: Backend ended failure[\s\S]*action=skip/);
+    // The newest run counts: a rerun that passed after a failure.
+    assert.match(decide([run('Backend', 'completed', 'failure', 3), run('Backend', 'completed', 'success', 4)], 'CI, Backend'), /Backend passed\.\nfell through/);
+    // Started by Backend: CI must have passed too.
+    assert.match(decide([run('CI', 'in_progress', null, 9)], 'CI,Backend', 'Backend'), /waits for CI/);
+    assert.doesNotMatch(decide([], ''), /action=/);
   });
 });
 
@@ -111,6 +153,9 @@ describe('the reusable backend workflow', () => {
     assert.match(caller, /\n {2}image:\n(?: {4}#.*\n)+ {4}permissions:\n {6}contents: read\n {6}packages: write\n {4}uses: /);
     assert.match(caller, /uses: SanderGeraedts\/harness\/\.github\/workflows\/backend\.yml@__HARNESS_REF__\n/);
     const merge = text('template-sync/_github/workflows/auto-merge.yml');
+    // Decided again when Backend completes, and never merged while it fails (T-0008's open point).
+    assert.match(merge, /\n {4}workflows: \[CI, Backend\]\n/);
+    assert.match(merge, /\n {6}wait-for: CI,Backend\n/);
     const paths = new RegExp(merge.match(/backend-paths: "(.*)"/)[1].replaceAll('\\\\', '\\'));
     for (const f of ['backend/Dockerfile', 'backend/pb_hooks/slugs.pb.js', '.github/workflows/backend.yml']) assert.match(f, paths, f);
     for (const f of ['src/main.tsx', 'docs/backend/notes.md', '.github/workflows/ci.yml']) assert.doesNotMatch(f, paths, f);

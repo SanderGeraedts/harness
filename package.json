@@ -1,6 +1,6 @@
 {
   "name": "@sandergeraedts/harness",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "An AI-first way of working: decisions, tasks, an agent team and workflows that projects install",
   "license": "MIT",
   "type": "module",
