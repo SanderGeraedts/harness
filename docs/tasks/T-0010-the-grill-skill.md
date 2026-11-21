@@ -112,6 +112,29 @@ pull request delivers the work (G-0012: status, Log and `result` move in the pul
 must be proposed and the choice recorded, and look and language asked, not treated as
 settled; (2) the developer's Log line and `result` (#19) are missing.
 
+2026-11-21 tester, second run, on `f30a8b5`, from `pnpm install --frozen-lockfile`.
+
+- `pnpm test`: `tests 259, pass 258, fail 0, skipped 1` (the same bash-and-jq skip). The
+  `checkSkills` test now also covers a `SKILL.md` without front matter: `no name in its front
+  matter` and `no description`.
+- `pnpm run self-test`: `✓ self-test passed: 31 steps, harness 0.8.0 in a throwaway project`.
+- `node bin/harness.mjs check`: `✓ tasks: 10 tasks, index in step`, `✓ global decisions: 30
+  records, index complete`, `✓ agents: 4 definitions`, `✓ skills: 1 skill`.
+- `gh pr checks 19` (run 44924189708, on `f30a8b5`): `checks` pass, `template-backend /
+  image` pass, `template-e2e` pass, `template-backend / publish` skipping. `MERGEABLE`.
+- The skill against the decisions: step 2 now settles only G-0016 to G-0019, G-0021 and
+  G-0029, which do settle the package manager, stack, hosting and backend, demo data outside
+  production, readable addresses and private repositories. G-0020 is now handled as its
+  guidance says: offline-first is proposed (or said why not) and needs a yes, look and
+  language are asked; the ending turns every lasting choice into a decision, which records
+  them. Read again against the rest of the rules (G-0007 roles, G-0009 and G-0028 nothing
+  spun up without a human, G-0010 `Q-NNN` with its issue, G-0012 tasks with a check): no
+  contradiction found.
+- The record: developer Log lines and `result` (#19) are there.
+
+**Verdict: passed.** The tag `v0.8.0` on the merge commit is still to come, which the Goal
+names as the release.
+
 # Log
 
 - 2026-11-21 architect: raised after the Engineer asked for a grill-me session for a new
@@ -127,3 +150,7 @@ settled; (2) the developer's Log line and `result` (#19) are missing.
   settled but proposes offline-first and asks about look and language; `result` and this
   Log are filled in; a skill without front matter now says "no name in its front matter"
   instead of `name "undefined"`. Back to the tester.
+- 2026-11-21 tester: passed (second run, on `f30a8b5`, see *Test*): 259 tests, 0 failed;
+  self-test 31 steps; `✓ skills: 1 skill`; CI green; the skill now follows G-0020.
+- Remaining: tag `v0.8.0` on the merge commit of #19, so `harness create` gives a new project
+  the skill.
