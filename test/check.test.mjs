@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import { appendFileSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
-import { main, runChecks } from '../lib/check.mjs';
+import { checkSkills, main, runChecks } from '../lib/check.mjs';
 import { init } from '../lib/init.mjs';
 import { HARNESS_ROOT } from '../lib/paths.mjs';
 import { SECTION_END } from '../lib/sync.mjs';
 import { writeIndex } from '../lib/tasks-index.mjs';
-import { cleanUp, decision, indexOf, question, task, tempProject, write } from './helpers.mjs';
+import { cleanUp, decision, indexOf, question, task, tempDir, tempProject, write } from './helpers.mjs';
 
 after(cleanUp);
 
@@ -127,9 +127,29 @@ describe('check', () => {
     ]);
   });
 
-  it('passes on the harness itself: tasks, global registry, agents', () => {
+  it('passes on the harness itself: tasks, global registry, agents, skills', () => {
     const results = runChecks(HARNESS_ROOT);
     assert.deepEqual(results.flatMap((r) => r.problems), []);
-    assert.deepEqual(results.map((r) => r.name), ['tasks', 'global decisions', 'agents']);
+    assert.deepEqual(results.map((r) => r.name), ['tasks', 'global decisions', 'agents', 'skills']);
+    assert.equal(results.at(-1).detail, '1 skill');
+  });
+
+  it('fails on a skill folder without SKILL.md, a name that differs from its folder, or no description', () => {
+    const dir = tempDir();
+    write(dir, 'good/SKILL.md', '---\nname: good\ndescription: Does a thing.\n---\n\nBody.\n');
+    write(dir, 'empty/notes.md', 'nothing\n');
+    write(dir, 'renamed/SKILL.md', '---\nname: other\ndescription: Does a thing.\n---\n');
+    write(dir, 'silent/SKILL.md', '---\nname: silent\n---\n');
+    write(dir, 'bare/SKILL.md', 'No front matter.\n');
+    const { names, problems } = checkSkills(dir);
+    assert.deepEqual(names, ['bare', 'good', 'renamed', 'silent']);
+    assert.deepEqual(problems, [
+      'skills/empty: no SKILL.md',
+      'skills/bare/SKILL.md: no name in its front matter',
+      'skills/bare/SKILL.md: no description',
+      `skills/renamed/SKILL.md: name "other" doesn't match the folder`,
+      'skills/silent/SKILL.md: no description',
+    ]);
+    assert.deepEqual(checkSkills(join(dir, 'none')), { names: [], problems: [] });
   });
 });

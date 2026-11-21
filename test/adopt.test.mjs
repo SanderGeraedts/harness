@@ -129,6 +129,7 @@ describe('adopt', () => {
       '.claude/agents/developer.md',
       '.claude/agents/tester.md',
       '.claude/agents/ux-designer.md',
+      '.claude/skills/grill/SKILL.md',
       'docs/decisions/_template-decision.md',
       'docs/decisions/_template-question.md',
       'docs/tasks/_template.md',
@@ -210,7 +211,7 @@ describe('adopt', () => {
     const report = inspect(dir);
     assert.deepEqual(report.kept, []);
     assert.deepEqual(report.differs, []);
-    assert.equal(report.add.length, 19);
+    assert.equal(report.add.length, 20);
     assert.match(render(report), /docs\/decisions: not there yet\n {2}docs\/tasks: not there yet/);
     assert.match(render(report), /Candidates to replace with a global decision\n {2}none/);
   });
