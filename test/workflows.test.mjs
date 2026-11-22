@@ -96,16 +96,23 @@ describe('the reusable CI workflow', () => {
   it('fails the job when a test passed only on a retry, run with bash on sample Playwright output', { skip: spawnSync('bash', ['-c', 'command -v sed']).status !== 0 && 'needs bash' }, () => {
     const script = parseYaml(ci).jobs.checks.steps.find((s) => s.name === 'End-to-end tests').run;
     const slash = (p) => p.replaceAll('\\', '/');
-    const run = (output, { code = 0, shard = '' } = {}) => {
+    const run = (output, { code = 0, shard = '', projects = '', failProject = '' } = {}) => {
       const dir = tempDir();
       writeFileSync(join(dir, 'out.txt'), output);
       writeFileSync(
         join(dir, 'playwright.mjs'),
-        `import { readFileSync } from 'node:fs';\nconsole.log('args:', process.argv.slice(3).join(' '));\nprocess.stdout.write(readFileSync(process.argv[2], 'utf8'));\nprocess.exit(${code});\n`,
+        [
+          "import { readFileSync } from 'node:fs';",
+          'const args = process.argv.slice(3);',
+          "if (args.includes('--list') && process.env.FAKE_PROJECTS) { console.log('> a pnpm header'); console.log(JSON.stringify({ config: { projects: process.env.FAKE_PROJECTS.split(',').map((name) => ({ name })) } })); process.exit(0); }",
+          "console.log('args:', args.join(' '));",
+          "process.stdout.write(readFileSync(process.argv[2], 'utf8'));",
+          `process.exit(process.env.FAKE_FAIL && args.includes(process.env.FAKE_FAIL) ? 1 : ${code});`,
+        ].join('\n'),
       );
       const r = spawnSync('bash', ['-eo', 'pipefail', '-c', script], {
         encoding: 'utf8',
-        env: { ...process.env, E2E: `node "${slash(join(dir, 'playwright.mjs'))}" "${slash(join(dir, 'out.txt'))}"\n`, SHARD: shard, RUNNER_TEMP: slash(dir) },
+        env: { ...process.env, E2E: `node "${slash(join(dir, 'playwright.mjs'))}" "${slash(join(dir, 'out.txt'))}"\n`, SHARD: shard, RUNNER_TEMP: slash(dir), FAKE_PROJECTS: projects, FAKE_FAIL: failProject },
       });
       return { status: r.status, out: `${r.stdout}${r.stderr}` };
     };
@@ -123,6 +130,18 @@ describe('the reusable CI workflow', () => {
     assert.equal(run('  1 failed\n', { code: 1 }).status, 1);
     assert.match(run('  2 passed\n', { shard: '--shard=2/3' }).out, /^args: --shard=2\/3$/m);
     assert.match(run('  2 passed\n').out, /^args: $/m);
+    // A shard splits each Playwright project on its own, and runs every one even when one fails.
+    const split = run('  2 passed\n', { shard: '--shard=2/3 --fully-parallel', projects: 'phone,production' });
+    assert.equal(split.status, 0, split.out);
+    assert.deepEqual(split.out.match(/^args: .*$/gm), [
+      'args: --shard=2/3 --fully-parallel --pass-with-no-tests --project=phone',
+      'args: --shard=2/3 --fully-parallel --pass-with-no-tests --project=production',
+    ]);
+    const oneFails = run('  2 passed\n', { shard: '--shard=1/2', projects: 'phone,production', failProject: '--project=phone' });
+    assert.equal(oneFails.status, 1);
+    assert.equal(oneFails.out.match(/^args: .*$/gm).length, 2, 'the second project ran too');
+    // Without a shard nothing is listed: the run is the one it was before.
+    assert.deepEqual(run('  2 passed\n', { projects: 'phone,production' }).out.match(/^args: .*$/gm), ['args: ']);
   });
 
   it('uploads under the given name, always or only after a failure', () => {

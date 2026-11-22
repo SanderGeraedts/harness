@@ -123,12 +123,29 @@ jobs:
         run: |
           command=$(printf '%s' "$E2E")
           set -o pipefail
-          eval "$command $SHARD" 2>&1 | tee "$RUNNER_TEMP/e2e.log"
-          if sed -E -e 's/\x1b\[[0-9;]*m//g' -e 's/^::[a-z]+( [^:]*)?::/\n/' -e 's/%0A/\n/g' "$RUNNER_TEMP/e2e.log" |
+          log="$RUNNER_TEMP/e2e.log"
+          : > "$log"
+          failed=0
+          # In a shard, each Playwright project is split on its own: Playwright shards the
+          # tests in order, so a slow project would otherwise all land in the last shard.
+          projects=""
+          if [ -n "$SHARD" ]; then
+            projects=$(eval "$command --list --reporter=json" 2>/dev/null |
+              node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => { try { for (const p of JSON.parse(s.slice(s.indexOf("{"))).config.projects) console.log(p.name) } catch {} })') || projects=""
+          fi
+          if [ -n "$projects" ]; then
+            while IFS= read -r project; do
+              eval "$command $SHARD --pass-with-no-tests --project=\"\$project\"" 2>&1 | tee -a "$log" || failed=1
+            done <<< "$projects"
+          else
+            eval "$command $SHARD" 2>&1 | tee -a "$log" || failed=1
+          fi
+          if sed -E -e 's/\x1b\[[0-9;]*m//g' -e 's/^::[a-z]+( [^:]*)?::/\n/' -e 's/%0A/\n/g' "$log" |
             grep -Eq '^[[:space:]]*[0-9]+ flaky[[:space:]]*$'; then
             echo "::error::A test passed only on a retry. Make it steady instead: a retry must not hide it (G-0031)."
             exit 1
           fi
+          exit "$failed"
 
       - name: Upload artifacts
         if: >-
@@ -250,12 +267,29 @@ jobs:
         run: |
           command=$(printf '%s' "$E2E")
           set -o pipefail
-          eval "$command $SHARD" 2>&1 | tee "$RUNNER_TEMP/e2e.log"
-          if sed -E -e 's/\x1b\[[0-9;]*m//g' -e 's/^::[a-z]+( [^:]*)?::/\n/' -e 's/%0A/\n/g' "$RUNNER_TEMP/e2e.log" |
+          log="$RUNNER_TEMP/e2e.log"
+          : > "$log"
+          failed=0
+          # In a shard, each Playwright project is split on its own: Playwright shards the
+          # tests in order, so a slow project would otherwise all land in the last shard.
+          projects=""
+          if [ -n "$SHARD" ]; then
+            projects=$(eval "$command --list --reporter=json" 2>/dev/null |
+              node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => { try { for (const p of JSON.parse(s.slice(s.indexOf("{"))).config.projects) console.log(p.name) } catch {} })') || projects=""
+          fi
+          if [ -n "$projects" ]; then
+            while IFS= read -r project; do
+              eval "$command $SHARD --pass-with-no-tests --project=\"\$project\"" 2>&1 | tee -a "$log" || failed=1
+            done <<< "$projects"
+          else
+            eval "$command $SHARD" 2>&1 | tee -a "$log" || failed=1
+          fi
+          if sed -E -e 's/\x1b\[[0-9;]*m//g' -e 's/^::[a-z]+( [^:]*)?::/\n/' -e 's/%0A/\n/g' "$log" |
             grep -Eq '^[[:space:]]*[0-9]+ flaky[[:space:]]*$'; then
             echo "::error::A test passed only on a retry. Make it steady instead: a retry must not hide it (G-0031)."
             exit 1
           fi
+          exit "$failed"
 
       - name: Stop the throwaway backend
         if: always() && needs.shards.outputs.backend == 'true'
