@@ -2,13 +2,13 @@
 id: G-0008
 title: "A team of four agents works each task as a pipeline: architect, UX designer, developer, tester"
 description: "Each task passes from the architect to the UX designer (for anything visible), the developer and the tester; each writes its result in the task file, the developer builds in a draft pull request, and only the tester marks it ready, so nothing merges untested."
-status: Accepted            # Accepted | Replaced
+status: Replaced            # Accepted | Replaced
 date: 2026-11-20
 decided_by: engineer
 since: 0.1.0                # the harness version that added this record
-changed: ""                 # the version in which it was replaced or redacted
+changed: "0.9.0"            # the version in which it was replaced or redacted
 replaces: []
-replaced_by: []
+replaced_by: [G-0031]
 tags: [process]
 ---
 
