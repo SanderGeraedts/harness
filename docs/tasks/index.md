@@ -7,12 +7,12 @@ One file per task, from [_template.md](_template.md). Pick from *Open* a task wh
 ## Open
 
 - [T-0006 Tidy what the testers of T-0005 and T-0003 found](T-0006-tidy-what-the-testers-of-t-0005-and-t-0003-found.md): Small defects in adopt, init, create and the auto-merge workflow that the testers listed and that blocked neither task.
-- [T-0011 Make the team's pipeline faster without losing its checks](T-0011-make-the-pipeline-faster.md): Build what G-0031 and G-0032 decide once the Engineer accepts them: task size in the template and check, agent definitions that skip the repetition, harness backend without Docker, and CI's end-to-end job split into parallel parts; released as 0.9.0.
 
 ## Doing
 
 - [T-0004 Spin up hosting and the backend, with automatic snapshots](T-0004-spin-up-hosting-and-backend.md): harness create also starts workflows in the private infrastructure repository that create the Netlify site and, for a project that syncs, a PocketBase app on the NAS with its own Funnel address and snapshot task; harness infra down removes a project again, after the Engineer's yes.
 - [T-0007 Generate the private infrastructure repository, install the runner on the NAS, and run harness nas through a workflow](T-0007-the-infrastructure-repository-the-runner-and-nas-by-workflow.md): harness infra init generates the thin private infrastructure repository, harness infra runner installs a self-hosted runner as an app on the NAS, and harness nas --remote calls the TrueNAS API through a workflow there, with the key from the GitHub environment; released as 0.6.0 with the rules for G-0026 to G-0029.
+- [T-0011 Make the team's pipeline faster without losing its checks](T-0011-make-the-pipeline-faster.md): Build what G-0031 and G-0032 decide once the Engineer accepts them: task size in the template and check, agent definitions that skip the repetition, harness backend without Docker, and CI's end-to-end job split into parallel parts; released as 0.9.0.
 
 ## Done
 

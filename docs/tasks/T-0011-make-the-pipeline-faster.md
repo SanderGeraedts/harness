@@ -2,7 +2,7 @@
 id: T-0011
 title: "Make the team's pipeline faster without losing its checks"
 description: "Build what G-0031 and G-0032 decide once the Engineer accepts them: task size in the template and check, agent definitions that skip the repetition, harness backend without Docker, and CI's end-to-end job split into parallel parts; released as 0.9.0."
-status: Open                # Open | Doing | Done | Dropped
+status: Doing               # Open | Doing | Done | Dropped
 depends_on: []              # tasks that must be Done first
 decisions: [G-0011, G-0015, G-0031, G-0032]
 raised_on: 2026-11-23
@@ -59,3 +59,4 @@ Not yet tested.
 
 - 2026-11-23 architect: raised after the Engineer asked why the first project took so long;
   G-0031 (replacing G-0008) and G-0032 drafted for the Engineer; offline-first stays.
+- 2026-11-23 architect: started after the Engineer merged G-0031 and G-0032 (#21); nothing visible, so no UX designer; to the developer.
