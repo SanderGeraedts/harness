@@ -18,7 +18,8 @@
 # It installs with pnpm, runs `harness check`, then the project's own checks, then the
 # end-to-end tests: in the same job, or, with e2e-shards above 1, split over that many
 # parallel jobs (Playwright's --shard), each on its own machine and so with its own
-# throwaway backend. A test that passed only on a retry fails the run (G-0031).
+# throwaway backend, started from a program built once (harness backend). A test that
+# passed only on a retry fails the run (G-0031).
 name: CI (reusable)
 
 on:
@@ -57,6 +58,12 @@ on:
           the checks job made is on another machine.
         type: string
         default: pnpm run --if-present build
+      e2e-backend-origin:
+        description: >-
+          The origin the throwaway backend answers (CORS), with e2e-shards above 1: the
+          address the end-to-end tests serve the production build on.
+        type: string
+        default: http://localhost:4174
       artifacts:
         description: >-
           Paths to upload as an artifact, one per line. By default whether the job passed or
@@ -134,21 +141,58 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  # The numbers of the end-to-end jobs, for their matrix: [1,2,...,e2e-shards].
+  # Once, before the end-to-end jobs: the numbers of the jobs, for their matrix
+  # ([1,2,...,e2e-shards]), and, when the project has a backend, its program
+  # (harness backend build, G-0032), so no end-to-end job builds it again.
   shards:
     if: inputs.e2e != '' && inputs.e2e-shards > 1
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     outputs:
       list: ${{ steps.list.outputs.list }}
+      backend: ${{ steps.backend.outputs.built }}
     steps:
       - id: list
         env:
           SHARDS: ${{ inputs.e2e-shards }}
         run: echo "list=[$(seq -s, 1 "$SHARDS")]" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: ${{ inputs.node-version-file }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
 
-  # One part of the end-to-end tests per job, side by side with the checks job. Each runs on
-  # its own machine, so each starts its own throwaway backend. A failing part fails the run,
+      # The toolchain, Go's modules and its build cache: a backend that didn't change builds
+      # in seconds.
+      - name: Cache the backend's toolchain
+        if: hashFiles('backend/Dockerfile') != ''
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/harness
+          key: harness-backend-${{ runner.os }}-${{ hashFiles('backend/Dockerfile', 'backend/go.sum') }}-${{ hashFiles('backend/**') }}
+          restore-keys: harness-backend-${{ runner.os }}-${{ hashFiles('backend/Dockerfile', 'backend/go.sum') }}-
+
+      - name: Build the backend once
+        id: backend
+        if: hashFiles('backend/Dockerfile') != ''
+        run: |
+          ${{ inputs.harness }} backend build "$RUNNER_TEMP/e2e-backend/backend"
+          echo "built=true" >> "$GITHUB_OUTPUT"
+
+      - name: Hand the backend to the end-to-end jobs
+        if: steps.backend.outputs.built == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-backend
+          path: ${{ runner.temp }}/e2e-backend/backend
+          retention-days: 1
+
+  # One part of the end-to-end tests per job, side by side with the checks job, split by
+  # test rather than by file (--fully-parallel) so the parts take about as long. Each starts
+  # its own throwaway backend from the program the shards job built, and gives its address
+  # in BACKEND_TEST_URL, so the tests' own setup starts none. A failing part fails the run,
   # and the auto-merge workflow merges only a run that passed as a whole.
   e2e:
     needs: shards
@@ -168,6 +212,23 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
+      - name: Take the backend the shards job built
+        if: needs.shards.outputs.backend == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: e2e-backend
+          path: ${{ runner.temp }}/e2e-backend
+
+      - name: Start the throwaway backend
+        if: needs.shards.outputs.backend == 'true'
+        env:
+          HARNESS_BACKEND_BINARY: ${{ runner.temp }}/e2e-backend/backend
+          BACKEND_TEST_PORT: "8090"
+          APP_ORIGIN: ${{ inputs.e2e-backend-origin }}
+        run: |
+          ${{ inputs.harness }} backend start
+          echo "BACKEND_TEST_URL=http://127.0.0.1:8090" >> "$GITHUB_ENV"
+
       - name: Build
         if: inputs.e2e-build != ''
         run: ${{ inputs.e2e-build }}
@@ -185,7 +246,7 @@ jobs:
         shell: bash
         env:
           E2E: ${{ inputs.e2e }}
-          SHARD: --shard=${{ matrix.shard }}/${{ inputs.e2e-shards }}
+          SHARD: --shard=${{ matrix.shard }}/${{ inputs.e2e-shards }} --fully-parallel
         run: |
           command=$(printf '%s' "$E2E")
           set -o pipefail
@@ -195,6 +256,10 @@ jobs:
             echo "::error::A test passed only on a retry. Make it steady instead: a retry must not hide it (G-0031)."
             exit 1
           fi
+
+      - name: Stop the throwaway backend
+        if: always() && needs.shards.outputs.backend == 'true'
+        run: ${{ inputs.harness }} backend stop
 
       - name: Upload artifacts
         if: >-

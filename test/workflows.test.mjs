@@ -32,7 +32,7 @@ describe('the reusable CI workflow', () => {
 
   it('has the artifact inputs, with defaults that keep 0.1.0 callers as they were', () => {
     const found = inputs(ci);
-    assert.deepEqual(Object.keys(found), ['node-version-file', 'harness', 'checks', 'e2e', 'e2e-shards', 'e2e-build', 'artifacts', 'artifact-name', 'artifacts-only-on-failure']);
+    assert.deepEqual(Object.keys(found), ['node-version-file', 'harness', 'checks', 'e2e', 'e2e-shards', 'e2e-build', 'e2e-backend-origin', 'artifacts', 'artifact-name', 'artifacts-only-on-failure']);
     assert.deepEqual(found.artifacts, { type: 'string', default: '' });
     assert.deepEqual(found['artifact-name'], { type: 'string', default: 'ci-artifacts' });
     assert.deepEqual(found['artifacts-only-on-failure'], { type: 'boolean', default: 'false' });
@@ -57,12 +57,40 @@ describe('the reusable CI workflow', () => {
     assert.equal(e2e.strategy['fail-fast'], false);
     assert.equal(e2e.strategy.matrix.shard, '${{ fromJSON(needs.shards.outputs.list) }}');
     const names = e2e.steps.map((s) => s.name ?? s.run ?? s.uses);
-    assert.deepEqual(names.slice(4), ['Build', 'Cache the browser', 'Install the browser', 'End-to-end tests', 'Upload artifacts']);
+    assert.deepEqual(names.slice(4), ['Take the backend the shards job built', 'Start the throwaway backend', 'Build', 'Cache the browser', 'Install the browser', 'End-to-end tests', 'Stop the throwaway backend', 'Upload artifacts']);
+    assert.equal(e2e.steps[2].with.cache, 'pnpm', 'pnpm is cached per shard');
     const step = (job) => job.steps.find((s) => s.name === 'End-to-end tests');
-    assert.equal(step(e2e).env.SHARD, '--shard=${{ matrix.shard }}/${{ inputs.e2e-shards }}');
+    assert.equal(step(e2e).env.SHARD, '--shard=${{ matrix.shard }}/${{ inputs.e2e-shards }} --fully-parallel', 'split by test, not by file');
     assert.equal(step(checks).env.SHARD, '');
     assert.equal(step(e2e).run, step(checks).run, 'the same script in both places');
     assert.equal(e2e.steps.find((s) => s.name === 'Upload artifacts').with.name, '${{ inputs.artifact-name }}-e2e-${{ matrix.shard }}');
+  });
+
+  it('with e2e-shards, builds the backend once and hands it to every end-to-end job, which starts it instead of building', () => {
+    const { shards, e2e } = parseYaml(ci).jobs;
+    const at = (job, name) => job.steps.find((s) => s.name === name);
+    assert.deepEqual(shards.outputs, { list: '${{ steps.list.outputs.list }}', backend: '${{ steps.backend.outputs.built }}' });
+    const build = at(shards, 'Build the backend once');
+    assert.equal(build.id, 'backend');
+    assert.equal(build.if, "hashFiles('backend/Dockerfile') != ''");
+    assert.match(build.run, /^\$\{\{ inputs\.harness \}\} backend build "\$RUNNER_TEMP\/e2e-backend\/backend"\necho "built=true" >> "\$GITHUB_OUTPUT"\n$/);
+    assert.equal(at(shards, 'Cache the backend\'s toolchain').with.path, '~/.cache/harness');
+    const handed = at(shards, 'Hand the backend to the end-to-end jobs');
+    assert.equal(handed.if, "steps.backend.outputs.built == 'true'");
+    assert.deepEqual([handed.uses, handed.with.name, handed.with.path], ['actions/upload-artifact@v4', 'e2e-backend', '${{ runner.temp }}/e2e-backend/backend']);
+    const taken = at(e2e, 'Take the backend the shards job built');
+    assert.deepEqual([taken.if, taken.uses, taken.with.name, taken.with.path], ["needs.shards.outputs.backend == 'true'", 'actions/download-artifact@v4', 'e2e-backend', '${{ runner.temp }}/e2e-backend']);
+    const started = at(e2e, 'Start the throwaway backend');
+    assert.equal(started.if, "needs.shards.outputs.backend == 'true'");
+    assert.equal(started.env.HARNESS_BACKEND_BINARY, `${handed.with.path}`);
+    assert.equal(started.env.APP_ORIGIN, '${{ inputs.e2e-backend-origin }}');
+    assert.match(started.run, /backend start\necho "BACKEND_TEST_URL=http:\/\/127\.0\.0\.1:8090" >> "\$GITHUB_ENV"/);
+    assert.equal(started.env.BACKEND_TEST_PORT, '8090');
+    assert.equal(parseYaml(ci).on.workflow_call.inputs['e2e-backend-origin'].default, 'http://localhost:4174');
+    // Nothing in an end-to-end job builds an image or runs Docker.
+    assert.doesNotMatch(JSON.stringify(e2e), /docker|backend build/);
+    // The browser is cached per job, as in the checks job.
+    assert.equal(at(e2e, 'Cache the browser').with.key, at(parseYaml(ci).jobs.checks, 'Cache the browser').with.key);
   });
 
   it('fails the job when a test passed only on a retry, run with bash on sample Playwright output', { skip: spawnSync('bash', ['-c', 'command -v sed']).status !== 0 && 'needs bash' }, () => {

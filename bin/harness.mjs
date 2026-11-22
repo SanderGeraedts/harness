@@ -9,7 +9,7 @@ const USAGE = `harness <command>
   overrules                      list the project decisions that overrule global ones
   changes <fromTag> [toTag]      global decisions added, changed or replaced between two versions
   waiting [dir...]               what waits on a human, for this or several project folders
-  backend [start|status|smoke|stop]
+  backend [start|status|smoke|stop|build <file>]
                                  a throwaway backend from the versions backend/Dockerfile
                                  pins, without Docker; smoke runs the smoke test against it
   sync                           copy or refresh the files the harness generates in a project

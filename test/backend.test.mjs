@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
 import { deflateRawSync, gunzipSync, gzipSync } from 'node:zlib';
 import { extractTarGz, extractZip, safePath, tarEntries, zipEntries } from '../lib/archive.mjs';
-import { backendFlags, cacheDir, defaults, main, readPins, readState, stateDir, target } from '../lib/backend.mjs';
+import { backendFlags, cacheDir, defaults, main, readPins, readState, stateDir, target, throwawayEnv } from '../lib/backend.mjs';
 import { cleanUp, tempDir, write } from './helpers.mjs';
 
 after(cleanUp);
@@ -89,6 +89,7 @@ if (process.env.FAKE_EXIT) { console.error('a migration failed'); process.exit(1
 const dir = flag('dir');
 if (args[0] === 'superuser') { fs.writeFileSync(path.join(dir, 'superuser.json'), JSON.stringify(args)); process.exit(0); }
 fs.writeFileSync(path.join(dir, 'serve.json'), JSON.stringify(args));
+fs.writeFileSync(path.join(dir, 'env.json'), JSON.stringify({ OUTSIDE_URL: process.env.OUTSIDE_URL ?? null }));
 const [host, port] = flag('http').split(':');
 http.createServer((q, s) => { s.statusCode = q.url === '/api/health' ? 200 : 404; s.end('{}'); }).listen(Number(port), host);
 `;
@@ -335,5 +336,39 @@ describe('harness backend: start, status, stop', () => {
     assert.equal(await main(['restart'], dir, d), 1);
     assert.equal(await main(['smoke'], dir, d), 1);
     assert.match(lines.at(-1), /run harness backend start first/);
+  });
+  it('builds once with build <file>, and start runs that program when HARNESS_BACKEND_BINARY names it', async () => {
+    const dir = project({ dockerfile: 'FROM golang:1.24.2-alpine AS build\nFROM alpine:3.22\n', goMain: true });
+    const first = deps();
+    const out = join(tempDir(), 'handed', 'backend');
+    assert.equal(await main(['build', out], dir, first.d), 0, first.lines.join('\n'));
+    assert.ok(existsSync(out));
+    assert.match(first.lines.at(-1), /Wrote the backend program to /);
+    // Another machine: an empty cache, and no Go download.
+    const second = deps({ env: { HARNESS_BACKEND_BINARY: out } });
+    assert.equal(await main(['start'], dir, second.d), 0, second.lines.join('\n'));
+    assert.equal(readState(stateDir(second.d.cache, dir)).binary, out);
+    assert.ok(!second.net.asked.some((u) => u.includes('go.dev')), 'the second machine downloaded Go');
+    assert.equal(await main(['stop'], dir, second.d), 0);
+    const missing = deps({ env: { HARNESS_BACKEND_BINARY: join(tempDir(), 'nothing') } });
+    assert.equal(await main(['start'], dir, missing.d), 1);
+    assert.match(missing.lines.join('\n'), /HARNESS_BACKEND_BINARY names .*, which doesn't exist/);
+    assert.equal(await main(['build'], dir, first.d), 1);
+  });
+
+  it("gives the backend the environment throwaway.sh's docker run sets", async () => {
+    const dir = project();
+    write(
+      dir,
+      'backend/throwaway.sh',
+      '#!/usr/bin/env bash\ndocker build -t x .\ndocker run -d --name x -p "127.0.0.1:$PORT:8090" -e OUTSIDE_URL=http://127.0.0.1:9 \\n  --env OTHER_URL=http://127.0.0.1:9 -e "$NOT_THIS" x serve\necho -e FAKE=1\n',
+    );
+    assert.deepEqual(throwawayEnv(dir), { OUTSIDE_URL: 'http://127.0.0.1:9', OTHER_URL: 'http://127.0.0.1:9' });
+    assert.deepEqual(throwawayEnv(join(import.meta.dirname, '..', 'template-sync')), {});
+    const { d, lines } = deps();
+    assert.equal(await main(['start'], dir, d), 0, lines.join('\n'));
+    const state = readState(stateDir(d.cache, dir));
+    assert.deepEqual(JSON.parse(readFileSync(join(state.dataDir, 'env.json'), 'utf8')), { OUTSIDE_URL: 'http://127.0.0.1:9' });
+    assert.equal(await main(['stop'], dir, d), 0);
   });
 });

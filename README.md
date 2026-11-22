@@ -137,8 +137,11 @@ jobs:
 The CI workflow installs with pnpm, runs `harness check`, then the project's own checks, then
 the end-to-end tests. A test that passed only on a retry (Playwright's "flaky") fails the
 job (G-0031). With `e2e-shards` above 1 the end-to-end tests run beside the checks, split
-over that many jobs with Playwright's `--shard`; each job builds first and runs on its own
-machine, so each starts its own throwaway backend, and its artifact is named
+over that many jobs with Playwright's `--shard`, split by test (`--fully-parallel`) so the
+parts take about as long. A job before them builds the backend once (`harness backend
+build`) and hands the program on; each part builds the app, starts its own throwaway
+backend from that program with `harness backend` and gives its address in
+`BACKEND_TEST_URL`, so no part builds a Docker image. Each part's artifact is named
 `<artifact-name>-e2e-<n>`. A project may add jobs of its own next to `checks`; the pull
 request merges when the whole workflow is green. Its inputs, all optional:
 
@@ -149,6 +152,7 @@ request merges when the whole workflow is green. Its inputs, all optional:
 | `e2e` | none | the end-to-end test command; Playwright's Chromium is installed first. With shards it gets `--shard=<i>/<n>` at its end, so it must pass extra arguments on to Playwright (`pnpm run test:e2e` does) |
 | `e2e-shards` | `1` | the number of parallel jobs the end-to-end tests are split over; `1` runs them in the checks job, as before 0.9.0 |
 | `e2e-build` | the `build` script, when there is one | what each end-to-end job runs before its tests, with `e2e-shards` above 1 |
+| `e2e-backend-origin` | `http://localhost:4174` | the origin the throwaway backend answers, with `e2e-shards` above 1: where the end-to-end tests serve the production build |
 | `artifacts` | none | paths to upload as an artifact, one per line |
 | `artifact-name` | `ci-artifacts` | the name of that artifact |
 | `artifacts-only-on-failure` | `false` | `true` uploads only when a step failed, instead of on every run |
@@ -434,7 +438,9 @@ From 0.8.0 to 0.9.0, also in that pull request:
   with jq. `backend/throwaway.sh` stays as it was.
 - `ci.yml` fails the end-to-end job when a test passed only on a retry, also without shards:
   fix a flaky test before updating. The new inputs `e2e-shards` and `e2e-build` are
-  optional; without them the end-to-end tests run in the checks job as before.
+  optional; without them the end-to-end tests run in the checks job as before. With shards,
+  the tests must pass when run in any order (`--fully-parallel`), and `e2e-backend-origin`
+  must be where the tests serve the production build.
 
 From 0.7.0 to 0.8.0, also in that pull request:
 
@@ -510,7 +516,7 @@ Run from the project root with `pnpm exec harness <command>`.
 | `overrules` | lists the project decisions that overrule global ones |
 | `changes <fromTag> [toTag]` | lists the global decisions added, changed or replaced after `fromTag`, up to `toTag` (default: the installed version) |
 | `waiting [dir...]` | lists what waits on a human, for one or several project folders: open questions, tasks' `Remaining:` lines, and open GitHub issues that are assigned. Skips issues when `gh` is missing |
-| `backend [start | status | smoke | stop]` | a throwaway backend without Docker (G-0032): reads the PocketBase image tag, or the golang image tag when `backend/main.go` exists, from `backend/Dockerfile`; downloads that release (and jq) once into a per-user cache (`%LOCALAPPDATA%harness`, `~/Library/Caches/harness`, `$XDG_CACHE_HOME/harness` or `~/.cache/harness`; `HARNESS_CACHE_DIR` moves it), checks the published checksums, builds the Go program there, and starts it on an empty database on a free port (`BACKEND_TEST_PORT` picks one) with the flags `throwaway.sh` uses. `smoke` runs `backend/smoke-test.sh` against it with jq on the PATH; `stop` stops it and removes its database |
+| `backend [start | status | smoke | stop | build <file>]` | a throwaway backend without Docker (G-0032): reads the PocketBase image tag, or the golang image tag when `backend/main.go` exists, from `backend/Dockerfile`; downloads that release (and jq) once into a per-user cache (`%LOCALAPPDATA%harness`, `~/Library/Caches/harness`, `$XDG_CACHE_HOME/harness` or `~/.cache/harness`; `HARNESS_CACHE_DIR` moves it), checks the published checksums, builds the Go program there, and starts it on an empty database on a free port (`BACKEND_TEST_PORT` picks one) with the flags `throwaway.sh` uses. `smoke` runs `backend/smoke-test.sh` against it with jq on the PATH; `stop` stops it and removes its database. It gives the backend the `-e NAME=value` settings of `throwaway.sh`'s `docker run`. `build <file>` writes the program `start` would run, for a CI job that builds once; `start` runs one given in `HARNESS_BACKEND_BINARY` |
 | `sync` | writes or refreshes the generated files: `.claude/agents/*.md`, `.claude/skills/*/SKILL.md`, `.githooks/pre-push`, the push rules and the `--confirmed`, `confirmed=true`, `project-down` and `confirmation=` ask rules in `.claude/settings.json` (merged into the project's own), the registry README (keeping its project section) and the templates |
 | `init [login...] [--default-branch <name>]` | sets an existing repository up, then runs `sync` |
 | `adopt [--write] [login...] [--default-branch <name>]` | for a repository that already has registries: reports what is there, what would be added, which generated files differ, and which project decisions look like a global one; changes nothing. With `--write` it adds what is missing and overwrites nothing |

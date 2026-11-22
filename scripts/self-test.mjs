@@ -526,7 +526,7 @@ console.log('code', await main(['down', 'spun-up'], process.cwd(), { getLogin: (
   assert.ok(!served(join(syncs.dir, 'dist-no-address')).includes(client), 'a production build without an address holds the backend client');
   assert.equal(ok('git status --porcelain', syncs.in).trim(), '', 'the builds are ignored by git');
 
-  step('harness backend starts a throwaway backend without Docker that the smoke test passes against, and stops it');
+  step('harness backend starts a throwaway backend without Docker that the smoke test passes against, and stops it; and from a program built once');
   {
     // A docker that fails loudly comes first on the PATH: harness backend must never call it.
     const fakeBin = join(work, 'no-docker');
@@ -549,6 +549,15 @@ console.log('code', await main(['down', 'spun-up'], process.cwd(), { getLogin: (
     // The second start takes everything from the cache.
     assert.doesNotMatch(ok(`${harness} backend`, { ...syncs.in, env }), /Downloading/);
     ok(`${harness} backend stop`, { ...syncs.in, env });
+    // Built once and handed on, as CI's shards job does: started from the file alone.
+    const built = ok(`${harness} backend build "${join(work, 'handed', 'backend')}"`, { ...syncs.in, env });
+    const handed = built.match(/Wrote the backend program to (.+)/)?.[1]?.trim();
+    assert.ok(handed && existsSync(handed), built);
+    const fromFile = { ...env, HARNESS_BACKEND_BINARY: handed, HARNESS_CACHE_DIR: join(work, 'cache-2') };
+    assert.match(ok(`${harness} backend start`, { ...syncs.in, env: fromFile }), /The throwaway backend is at http:\/\/127\.0\.0\.1:\d+/);
+    assert.match(ok(`${harness} backend smoke`, { ...syncs.in, env: fromFile }), /All smoke tests passed\./);
+    ok(`${harness} backend stop`, { ...syncs.in, env: fromFile });
+    assert.deepEqual(readdirSync(join(work, 'cache-2', 'tools')).filter((f) => !f.startsWith('jq-')), [], 'the handed program was downloaded again');
     fails(`${harness} backend`, /no backend\/Dockerfile: this project has no backend/, { ...local.in, env });
   }
 
