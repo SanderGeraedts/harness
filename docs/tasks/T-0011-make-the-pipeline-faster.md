@@ -2,12 +2,12 @@
 id: T-0011
 title: "Make the team's pipeline faster without losing its checks"
 description: "Build what G-0031 and G-0032 decide once the Engineer accepts them: task size in the template and check, agent definitions that skip the repetition, harness backend without Docker, and CI's end-to-end job split into parallel parts; released as 0.9.0."
-status: Doing               # Open | Doing | Done | Dropped
+status: Done                # Open | Doing | Done | Dropped
 size: full                  # small | full: the architect sizes it (G-0031)
 depends_on: []              # tasks that must be Done first
 decisions: [G-0011, G-0015, G-0031, G-0032]
 raised_on: 2026-11-23
-done_on: ""
+done_on: 2026-11-23
 result: [https://github.com/SanderGeraedts/harness/pull/22]  # PR URLs
 ---
 
@@ -151,6 +151,55 @@ changes the *Done when* with the Engineer. The measured numbers are above.
 - **The record:** status Doing, `result` holds this pull request, the developer's Log line
   is there; nothing visible, so no UX review.
 
+## Second run, after the send-back (21575db)
+
+**Verdict: passed.** Re-checked what was sent back and the new parts only (G-0031).
+
+- `gh pr checks 22` (run 45069865479): `checks / checks` pass (1m3s), `template-e2e` pass
+  (1m34s), `template-backend / image` pass; `shards`, `e2e` and `publish` skipping. Its log:
+  `ℹ tests 282`, `ℹ pass 282`, `ℹ fail 0`, `ℹ skipped 0`; "✓ self-test passed: 34 steps";
+  template-e2e "✓ self-test passed: 36 steps"; no "flaky", no "Retry #".
+- `pnpm test` (Windows, frozen install): `ℹ tests 282`, `ℹ pass 281`, `ℹ fail 0`,
+  `ℹ skipped 1` (jq on the PATH, as before).
+- `node bin/harness.mjs check`: "✓ tasks: 11 tasks, index in step", "✓ global decisions: 32
+  records, index complete", "✓ agents: 4 definitions", "✓ skills: 1 skill".
+
+**The real-project timing, again: met.** The same procedure in the same project (a
+throwaway draft pull request pinned to 21575db, `e2e-shards: 4`, `harness sync`,
+`harness check` passing; closed and its branch deleted afterwards), CI run 45070196125:
+
+| | before (same as above) | with 4 shards |
+| --- | --- | --- |
+| end-to-end, wall clock | 12m45s | 6m11s from the first job's start (21:06:28) to the last's end (21:12:39) |
+| shards job (builds the backend once) | | 1m39s, with a cold cache ("Cache not found" for the backend's toolchain): "Building backend/main.go with Go 1.27.4" |
+| e2e jobs | | 2m58s, 3m3s, 3m14s, 4m29s |
+| tests per job (phone + production) | 162 in one | 33+8, 33+8, 32+8, 32+8: all passed |
+
+6m11s is 49% of 12m45s, with a cold Go cache; with a warm one the developer measured 4m24s
+(35%). The margin is thin when cold: shard 4's phone part took 2.4m where the others took
+46s to 1.1m. Every shard started its own throwaway backend from the program the shards job
+built ("The throwaway backend is at http://127.0.0.1:8090, for http://localhost:4174" in
+each, and no Docker image build in the run). 0 "flaky" lines, 0 "Retry #" lines.
+
+**What I tried to break in the new parts**
+
+- `harness backend build`: no file → "✗ harness backend build needs the file to write",
+  exit 1; two files → usage, exit 1; a folder that doesn't exist yet and has spaces in its
+  name → created, `backend.exe` written (`.exe` added on Windows); onto an existing folder →
+  "✗ EISDIR", exit 1, nothing else changed; no `backend/Dockerfile` → "✗ no
+  backend/Dockerfile: this project has no backend". A Go backend built to a file, then
+  started from it with `HARNESS_BACKEND_BINARY`, and stopped; the repository untouched
+  (`git status --porcelain --ignored` empty). A PocketBase build, started from the file,
+  passed `harness backend smoke` ("All smoke tests passed."). `HARNESS_BACKEND_BINARY`
+  naming a missing file → "✗ HARNESS_BACKEND_BINARY names …, which doesn't exist", exit 1.
+- The `-e` passthrough (`throwawayEnv`): `-e A=1`, `--env B=two`, `--env=F=six`, `-e H=a=b`
+  and `-e` after a line continuation are read; a commented-out `docker run`, `echo docker run`
+  and `docker exec` lines are ignored. Left out, as the code says: `-e C="$X"` (a value from
+  a shell variable) and a line that starts with a variable assignment before `docker run`.
+  `-e D` with no value passes D on anyway, because the backend inherits the environment. The
+  project's `throwaway.sh` sets only literal values (four outside addresses pointed at a
+  closed port), which are read.
+
 # Log
 
 - 2026-11-23 architect: raised after the Engineer asked why the first project took so long;
@@ -190,3 +239,8 @@ changes the *Done when* with the Engineer. The measured numbers are above.
   job took 1m32s, so about 5m25s. `pnpm test` 282 tests, 281 pass, 0 fail, 1 skipped;
   `pnpm run self-test` "✓ self-test passed: 34 steps, harness 0.9.0 in a throwaway project";
   `node bin/harness.mjs check` all ✓.
+- 2026-11-23 tester: passed after the send-back: in the same project four shards took 6m11s
+  against 12m45s (49%, with a cold Go cache), every shard on its own backend from one build,
+  all 162 tests passed with no flaky test or retry; CI green with no retries, `pnpm test`,
+  `harness check`, and the attempts to break `harness backend build` and the `-e` settings;
+  see *Test*.
