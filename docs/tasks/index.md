@@ -7,6 +7,7 @@ One file per task, from [_template.md](_template.md). Pick from *Open* a task wh
 ## Open
 
 - [T-0006 Tidy what the testers of T-0005 and T-0003 found](T-0006-tidy-what-the-testers-of-t-0005-and-t-0003-found.md): Small defects in adopt, init, create and the auto-merge workflow that the testers listed and that blocked neither task.
+- [T-0011 Make the team's pipeline faster without losing its checks](T-0011-make-the-pipeline-faster.md): Build what G-0031 and G-0032 decide once the Engineer accepts them: task size in the template and check, agent definitions that skip the repetition, harness backend without Docker, and CI's end-to-end job split into parallel parts; released as 0.9.0.
 
 ## Doing
 
