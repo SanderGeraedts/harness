@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
+import { parse as parseYaml } from 'yaml';
 import { HARNESS_ROOT, harnessVersion } from '../lib/paths.mjs';
 import { cleanUp, tempDir } from './helpers.mjs';
 
@@ -31,10 +32,69 @@ describe('the reusable CI workflow', () => {
 
   it('has the artifact inputs, with defaults that keep 0.1.0 callers as they were', () => {
     const found = inputs(ci);
-    assert.deepEqual(Object.keys(found), ['node-version-file', 'harness', 'checks', 'e2e', 'artifacts', 'artifact-name', 'artifacts-only-on-failure']);
+    assert.deepEqual(Object.keys(found), ['node-version-file', 'harness', 'checks', 'e2e', 'e2e-shards', 'e2e-build', 'artifacts', 'artifact-name', 'artifacts-only-on-failure']);
     assert.deepEqual(found.artifacts, { type: 'string', default: '' });
     assert.deepEqual(found['artifact-name'], { type: 'string', default: 'ci-artifacts' });
     assert.deepEqual(found['artifacts-only-on-failure'], { type: 'boolean', default: 'false' });
+  });
+
+  it('parses as YAML, and runs the end-to-end tests in the checks job unless e2e-shards is above 1', () => {
+    const doc = parseYaml(ci);
+    const input = doc.on.workflow_call.inputs;
+    assert.deepEqual([input['e2e-shards'].type, input['e2e-shards'].default], ['number', 1]);
+    assert.equal(input['e2e-build'].default, 'pnpm run --if-present build');
+    assert.deepEqual(Object.keys(doc.jobs), ['checks', 'shards', 'e2e']);
+    const inChecks = doc.jobs.checks.steps.filter((s) => /browser|End-to-end/.test(s.name ?? ''));
+    assert.equal(inChecks.length, 3);
+    for (const s of inChecks) assert.equal(s.if, "inputs.e2e != '' && inputs.e2e-shards < 2", s.name);
+    assert.equal(doc.jobs.shards.if, "inputs.e2e != '' && inputs.e2e-shards > 1");
+  });
+
+  it('with e2e-shards, runs one Playwright shard per job, each building first, none stopping the others', () => {
+    const { checks, shards, e2e } = parseYaml(ci).jobs;
+    assert.match(shards.steps[0].run, /seq -s, 1 "\$SHARDS"/);
+    assert.equal(e2e.needs, 'shards');
+    assert.equal(e2e.strategy['fail-fast'], false);
+    assert.equal(e2e.strategy.matrix.shard, '${{ fromJSON(needs.shards.outputs.list) }}');
+    const names = e2e.steps.map((s) => s.name ?? s.run ?? s.uses);
+    assert.deepEqual(names.slice(4), ['Build', 'Cache the browser', 'Install the browser', 'End-to-end tests', 'Upload artifacts']);
+    const step = (job) => job.steps.find((s) => s.name === 'End-to-end tests');
+    assert.equal(step(e2e).env.SHARD, '--shard=${{ matrix.shard }}/${{ inputs.e2e-shards }}');
+    assert.equal(step(checks).env.SHARD, '');
+    assert.equal(step(e2e).run, step(checks).run, 'the same script in both places');
+    assert.equal(e2e.steps.find((s) => s.name === 'Upload artifacts').with.name, '${{ inputs.artifact-name }}-e2e-${{ matrix.shard }}');
+  });
+
+  it('fails the job when a test passed only on a retry, run with bash on sample Playwright output', { skip: spawnSync('bash', ['-c', 'command -v sed']).status !== 0 && 'needs bash' }, () => {
+    const script = parseYaml(ci).jobs.checks.steps.find((s) => s.name === 'End-to-end tests').run;
+    const slash = (p) => p.replaceAll('\\', '/');
+    const run = (output, { code = 0, shard = '' } = {}) => {
+      const dir = tempDir();
+      writeFileSync(join(dir, 'out.txt'), output);
+      writeFileSync(
+        join(dir, 'playwright.mjs'),
+        `import { readFileSync } from 'node:fs';\nconsole.log('args:', process.argv.slice(3).join(' '));\nprocess.stdout.write(readFileSync(process.argv[2], 'utf8'));\nprocess.exit(${code});\n`,
+      );
+      const r = spawnSync('bash', ['-eo', 'pipefail', '-c', script], {
+        encoding: 'utf8',
+        env: { ...process.env, E2E: `node "${slash(join(dir, 'playwright.mjs'))}" "${slash(join(dir, 'out.txt'))}"\n`, SHARD: shard, RUNNER_TEMP: slash(dir) },
+      });
+      return { status: r.status, out: `${r.stdout}${r.stderr}` };
+    };
+    const passed = run('Running 3 tests using 2 workers\n  ✓  1 [phone] › e2e/a.spec.ts:3:1 › 1 flaky looking title\n\n  3 passed (2.1s)\n');
+    assert.equal(passed.status, 0, passed.out);
+    // The list reporter, in colour.
+    const listed = run('  \u001b[33m  1 flaky\u001b[39m\n    [phone] › e2e/a.spec.ts:3:1 › a\n  \u001b[32m  2 passed\u001b[39m (3.0s)\n');
+    assert.equal(listed.status, 1, listed.out);
+    assert.match(listed.out, /::error::A test passed only on a retry/);
+    // The github reporter: one notice, its lines escaped, the count first.
+    assert.equal(run('::notice title=🎭 Playwright Run Summary::  1 flaky%0A    [phone] › a%0A  2 passed (3.0s)\n').status, 1);
+    assert.equal(run('::notice title=🎭 Playwright Run Summary::  1 failed%0A  4 flaky%0A  2 passed\n').status, 1);
+    assert.equal(run('::notice title=🎭 Playwright Run Summary::  5 passed (3.0s)\n').status, 0);
+    // A failing run fails, flaky or not; and a shard gets its argument at the end.
+    assert.equal(run('  1 failed\n', { code: 1 }).status, 1);
+    assert.match(run('  2 passed\n', { shard: '--shard=2/3' }).out, /^args: --shard=2\/3$/m);
+    assert.match(run('  2 passed\n').out, /^args: $/m);
   });
 
   it('uploads under the given name, always or only after a failure', () => {

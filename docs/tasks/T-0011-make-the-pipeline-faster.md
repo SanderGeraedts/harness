@@ -3,6 +3,7 @@ id: T-0011
 title: "Make the team's pipeline faster without losing its checks"
 description: "Build what G-0031 and G-0032 decide once the Engineer accepts them: task size in the template and check, agent definitions that skip the repetition, harness backend without Docker, and CI's end-to-end job split into parallel parts; released as 0.9.0."
 status: Doing               # Open | Doing | Done | Dropped
+size: full                  # small | full: the architect sizes it (G-0031)
 depends_on: []              # tasks that must be Done first
 decisions: [G-0011, G-0015, G-0031, G-0032]
 raised_on: 2026-11-23
@@ -60,3 +61,17 @@ Not yet tested.
 - 2026-11-23 architect: raised after the Engineer asked why the first project took so long;
   G-0031 (replacing G-0008) and G-0032 drafted for the Engineer; offline-first stays.
 - 2026-11-23 architect: started after the Engineer merged G-0031 and G-0032 (#21); nothing visible, so no UX designer; to the developer.
+- 2026-11-23 developer: built all four parts in one draft pull request (one task file and one
+  README, so no conflicts between parts): `size: small | full` in the task template, refused
+  by `check` and `tasks-index` when unknown, missing counts as full, the index marks
+  `(small)`; the four agents and the rules per G-0031; `harness backend [start|status|smoke|stop]`
+  per G-0032 (PocketBase or Go from `backend/Dockerfile`, jq 1.8.2, checksums checked, per-user
+  cache, state outside the repository); `ci.yml` gains `e2e-shards` and `e2e-build`, and fails
+  a run with a flaky test. Version 0.9.0. On Windows: `pnpm test` 279 tests, 278 pass, 0 fail,
+  1 skipped (needs jq on the PATH, as before); `pnpm run self-test` "✓ self-test passed: 34
+  steps, harness 0.9.0 in a throwaway project", step 32 starting a backend with a failing
+  `docker` first on the PATH and passing "All smoke tests passed."; `node bin/harness.mjs check`
+  all ✓. Also by hand on Windows: a Go backend (`FROM golang:${GO_VERSION}-alpine`, 1.25)
+  downloaded Go 1.25.14, built and started. Not yet measured: the CI time with shards in a real
+  project (the template's CI sets no `e2e-shards`); the tester or the Engineer needs a project
+  with a real suite for the *Done when* timing.

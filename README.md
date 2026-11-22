@@ -31,21 +31,26 @@ itself. Humans decide what can't be undone or costs money.
 
 ## The team
 
-Every task goes through a pipeline, and each role writes its result in the task file:
+Every task goes through a pipeline, and each role writes its result in the task file
+(G-0031):
 
-1. **Architect:** turns the request into a task with a check, names the decisions it
-   follows, records new decisions, raises questions for the Engineer.
-2. **UX designer:** designs anything a user sees before it is built, and reviews it after.
-3. **Developer:** builds it in a draft pull request.
-4. **Tester:** runs the check independently, tries to break it, and only then marks the pull
-   request ready. Drafts never merge, so nothing merges untested.
+1. **Architect:** turns the request into a task with a check, sizes it `small` or `full`,
+   names the decisions it follows, records new decisions, raises questions for the Engineer.
+2. **UX designer:** designs anything a user sees before it is built (for a full task), and
+   reviews it after.
+3. **Developer:** builds it in a draft pull request, running locally what the change
+   touches; CI runs everything.
+4. **Tester:** reads CI's run instead of repeating it, runs the check and the new tests
+   independently, tries to break it, and only then marks the pull request ready. Drafts
+   never merge, so nothing merges untested, and a run that passed only on a retry doesn't
+   count.
 
 ## Install in a project
 
 The project is an existing git repository with a `package.json`, using pnpm.
 
 ```sh
-pnpm add -D github:SanderGeraedts/harness#v0.8.0
+pnpm add -D github:SanderGeraedts/harness#v0.9.0
 pnpm exec harness init <engineer-github-login>...
 pnpm exec harness check
 ```
@@ -85,13 +90,14 @@ concurrency:
 
 jobs:
   checks:
-    uses: SanderGeraedts/harness/.github/workflows/ci.yml@v0.8.0
+    uses: SanderGeraedts/harness/.github/workflows/ci.yml@v0.9.0
     # with:
     #   checks: |
     #     pnpm run typecheck
     #     pnpm test
     #     pnpm run build
     #   e2e: pnpm run test:e2e
+    #   e2e-shards: 3
     #   artifacts: |
     #     playwright-report/
     #     test-results/
@@ -120,7 +126,7 @@ permissions:
 
 jobs:
   merge:
-    uses: SanderGeraedts/harness/.github/workflows/auto-merge.yml@v0.8.0
+    uses: SanderGeraedts/harness/.github/workflows/auto-merge.yml@v0.9.0
     # with:
     #   ci-workflow: ci.yml
     #   backend-workflow: backend.yml
@@ -128,15 +134,21 @@ jobs:
     #   wait-for: CI,Backend      # and workflows: [CI, Backend] above
 ```
 
-The CI workflow installs with pnpm, runs `harness check`, then the project's own checks. A
-project may add jobs of its own next to `checks`; the pull request merges when the whole
-workflow is green. Its inputs, all optional:
+The CI workflow installs with pnpm, runs `harness check`, then the project's own checks, then
+the end-to-end tests. A test that passed only on a retry (Playwright's "flaky") fails the
+job (G-0031). With `e2e-shards` above 1 the end-to-end tests run beside the checks, split
+over that many jobs with Playwright's `--shard`; each job builds first and runs on its own
+machine, so each starts its own throwaway backend, and its artifact is named
+`<artifact-name>-e2e-<n>`. A project may add jobs of its own next to `checks`; the pull
+request merges when the whole workflow is green. Its inputs, all optional:
 
 | Input | Default | What |
 | --- | --- | --- |
 | `node-version-file` | `.nvmrc` | the file that names the Node version |
 | `checks` | the `typecheck`, `test` and `build` scripts that exist | the project's checks, as a shell script |
-| `e2e` | none | the end-to-end test command; Playwright's Chromium is installed first |
+| `e2e` | none | the end-to-end test command; Playwright's Chromium is installed first. With shards it gets `--shard=<i>/<n>` at its end, so it must pass extra arguments on to Playwright (`pnpm run test:e2e` does) |
+| `e2e-shards` | `1` | the number of parallel jobs the end-to-end tests are split over; `1` runs them in the checks job, as before 0.9.0 |
+| `e2e-build` | the `build` script, when there is one | what each end-to-end job runs before its tests, with `e2e-shards` above 1 |
 | `artifacts` | none | paths to upload as an artifact, one per line |
 | `artifact-name` | `ci-artifacts` | the name of that artifact |
 | `artifacts-only-on-failure` | `false` | `true` uploads only when a step failed, instead of on every run |
@@ -178,7 +190,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: SanderGeraedts/harness/.github/workflows/backend.yml@v0.8.0
+    uses: SanderGeraedts/harness/.github/workflows/backend.yml@v0.9.0
 ```
 
 Publishing is a job of its own: the only one that takes `packages: write`, and it runs on
@@ -213,7 +225,7 @@ when the checks passed.
 ## Adopt, in a repository that already has registries
 
 ```sh
-pnpm add -D github:SanderGeraedts/harness#v0.8.0
+pnpm add -D github:SanderGeraedts/harness#v0.9.0
 pnpm exec harness adopt
 pnpm exec harness adopt --write <engineer-github-login>...
 pnpm exec harness sync
@@ -398,14 +410,31 @@ to refresh the lockfiles new projects start from. `node scripts/make-project.mjs
 ## Update
 
 ```sh
-pnpm add -D github:SanderGeraedts/harness#v0.8.0
+pnpm add -D github:SanderGeraedts/harness#v0.9.0
 pnpm exec harness sync
-pnpm exec harness changes v0.7.0 v0.8.0
+pnpm exec harness changes v0.8.0 v0.9.0
 ```
 
 Bump the tag in both workflows in the same pull request, and put the output of `changes` in
 its description: the global decisions that were added, changed or replaced. Per decision the
 project's architect opens a task to conform or records an overruling decision.
+
+From 0.8.0 to 0.9.0, also in that pull request:
+
+- G-0031 replaces G-0008: the architect sizes each task. `sync` rewrites the task template
+  (`docs/tasks/_template.md` gains `size: full`) and all four agents in `.claude/agents/`:
+  the UX designer skips the design before building for a small task, the developer runs
+  locally what the change touches, the tester reads CI's run and re-checks only what it
+  sent back. Commit what it writes. A task without `size` counts as full, so existing tasks
+  need no change; `check` and `tasks-index` refuse a size other than `small` or `full`,
+  and the index marks a small task `(small)`.
+- G-0032: `harness backend` starts a throwaway backend without Docker, from the PocketBase
+  or Go version `backend/Dockerfile` pins, downloaded once into a per-user cache and checked
+  against its published checksums; `harness backend smoke` runs the smoke test against it
+  with jq. `backend/throwaway.sh` stays as it was.
+- `ci.yml` fails the end-to-end job when a test passed only on a retry, also without shards:
+  fix a flaky test before updating. The new inputs `e2e-shards` and `e2e-build` are
+  optional; without them the end-to-end tests run in the checks job as before.
 
 From 0.7.0 to 0.8.0, also in that pull request:
 
@@ -477,10 +506,11 @@ Run from the project root with `pnpm exec harness <command>`.
 | --- | --- |
 | `role` | prints `engineer` or `requester`: is the signed-in GitHub account (`gh api user`) in `.harness/engineers`? `requester` when the file or `gh` is missing |
 | `check` | what CI checks: the task index is in step, the decision index lists every record and nothing else, front matter is valid, every `overrules` and every `replaced_by` with a `G-NNNN` id names a global decision of the installed harness, the Engineers are listed, and the generated files are current (the registry README's project section aside) |
-| `tasks-index [--check] [dir]` | writes `docs/tasks/index.md` from the task files, or checks it |
+| `tasks-index [--check] [dir]` | writes `docs/tasks/index.md` from the task files, or checks it; refuses a `size` other than `small` or `full` (none counts as full) |
 | `overrules` | lists the project decisions that overrule global ones |
 | `changes <fromTag> [toTag]` | lists the global decisions added, changed or replaced after `fromTag`, up to `toTag` (default: the installed version) |
 | `waiting [dir...]` | lists what waits on a human, for one or several project folders: open questions, tasks' `Remaining:` lines, and open GitHub issues that are assigned. Skips issues when `gh` is missing |
+| `backend [start | status | smoke | stop]` | a throwaway backend without Docker (G-0032): reads the PocketBase image tag, or the golang image tag when `backend/main.go` exists, from `backend/Dockerfile`; downloads that release (and jq) once into a per-user cache (`%LOCALAPPDATA%harness`, `~/Library/Caches/harness`, `$XDG_CACHE_HOME/harness` or `~/.cache/harness`; `HARNESS_CACHE_DIR` moves it), checks the published checksums, builds the Go program there, and starts it on an empty database on a free port (`BACKEND_TEST_PORT` picks one) with the flags `throwaway.sh` uses. `smoke` runs `backend/smoke-test.sh` against it with jq on the PATH; `stop` stops it and removes its database |
 | `sync` | writes or refreshes the generated files: `.claude/agents/*.md`, `.claude/skills/*/SKILL.md`, `.githooks/pre-push`, the push rules and the `--confirmed`, `confirmed=true`, `project-down` and `confirmation=` ask rules in `.claude/settings.json` (merged into the project's own), the registry README (keeping its project section) and the templates |
 | `init [login...] [--default-branch <name>]` | sets an existing repository up, then runs `sync` |
 | `adopt [--write] [login...] [--default-branch <name>]` | for a repository that already has registries: reports what is there, what would be added, which generated files differ, and which project decisions look like a global one; changes nothing. With `--write` it adds what is missing and overwrites nothing |
