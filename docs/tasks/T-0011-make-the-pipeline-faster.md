@@ -2,12 +2,13 @@
 id: T-0011
 title: "Make the team's pipeline faster without losing its checks"
 description: "Build what G-0031 and G-0032 decide once the Engineer accepts them: task size in the template and check, agent definitions that skip the repetition, harness backend without Docker, and CI's end-to-end job split into parallel parts; released as 0.9.0."
-status: Open                # Open | Doing | Done | Dropped
+status: Done                # Open | Doing | Done | Dropped
+size: full                  # small | full: the architect sizes it (G-0031)
 depends_on: []              # tasks that must be Done first
 decisions: [G-0011, G-0015, G-0031, G-0032]
 raised_on: 2026-11-23
-done_on: ""
-result: []                  # PR URLs
+done_on: 2026-11-23
+result: [https://github.com/SanderGeraedts/harness/pull/22]  # PR URLs
 ---
 
 # Goal
@@ -53,9 +54,193 @@ Nothing visible.
 
 # Test
 
-Not yet tested.
+Tested on 2026-11-23 at b533b30, on Windows, from `pnpm install --frozen-lockfile`.
+**Verdict: sent back.** Everything the harness tests passes, but the *Done when* timing does
+not: with four shards a project's end-to-end tests took 78% as long as before, not at most
+half.
+
+**Checks as run**
+
+- `gh pr checks 22`: `checks / checks` pass (42s), `template-e2e` pass (1m43s),
+  `template-backend / image` pass; `shards`, `e2e n/n` and `publish` skipping (the harness's
+  own CI sets no shards). CI's log (run 45065499145): `ℹ tests 279`, `ℹ pass 279`, `ℹ fail 0`,
+  `ℹ skipped 0` on Linux, including "harness backend: start, status, stop" and "fails the job
+  when a test passed only on a retry"; "✓ self-test passed: 34 steps, harness 0.9.0 in a
+  throwaway project"; template-e2e "✓ self-test passed: 36 steps". No retries.
+- `pnpm test`: `ℹ tests 279`, `ℹ pass 278`, `ℹ fail 0`, `ℹ skipped 1` (needs jq on the
+  PATH, as before).
+- `pnpm run self-test`: "✓ self-test passed: 34 steps, harness 0.9.0 in a throwaway
+  project", step 32 "harness backend starts a throwaway backend without Docker that the smoke
+  test passes against, and stops it".
+- `node bin/harness.mjs check`: "✓ tasks: 11 tasks, index in step", "✓ global decisions: 32
+  records, index complete", "✓ agents: 4 definitions", "✓ skills: 1 skill".
+
+**The real-project timing (Done when: at most half as long): not met**
+
+In a project with a real suite (162 end-to-end tests), a throwaway draft pull request pointed
+the harness dependency and the reusable workflows at b533b30, set `e2e-shards: 4` (the
+default `e2e-build` was enough) and ran `harness sync`; `harness check` passed there. It was
+closed and its branch deleted afterwards.
+
+| | before (last green run of the suite now on its `main`, same tree) | with 4 shards |
+| --- | --- | --- |
+| end-to-end, wall clock | checks job 12m45s, its e2e step 12m10s | 9m54s from the first job's start to the last's end |
+| longest job | 12m45s | e2e 4/4: 9m48s (e2e step 9m08s) |
+| tests per job | 162, "162 passed (12.2m)" | 44 / 50 / 35 / 33: "44 passed (4.1m)", "50 passed (5.1m)", "35 passed (5.3m)", "33 passed (9.1m)" |
+
+9m54s is 78% of 12m45s; half would be 6m23s. Every shard built and started its own
+throwaway backend ("The throwaway backend is at http://127.0.0.1:8090" in each of the four
+jobs, on its own runner), all 162 passed, and no test was flaky or retried (0 "flaky" lines,
+0 "Retry #" lines in the run's log). Why it is not half:
+
+1. **A fixed cost per shard:** each shard spent about three minutes in the project's global
+   setup (building the backend's Docker image and starting it) before its first test, the
+   same three minutes the single job spent (2m54s before "Running 162 tests"). Sharding
+   doesn't divide it.
+2. **Uneven shards:** the project runs one worker and isn't `fullyParallel`, so Playwright
+   splits by file; shard 4 got 33 tests that took 9.1m, shard 1 got 44 that took 4.1m.
+
+Back to the developer: the task's goal is the time, so either the shards must take the fixed
+cost off (a backend without the per-job image build, e.g. `harness backend` or a cached
+image) and balance (tests split by test, not file, or more workers), or the architect
+changes the *Done when* with the Engineer. The measured numbers are above.
+
+**What I tried to break (all as expected unless said)**
+
+- **The size field**, through `harness tasks-index` and `--check`: `small`, `full`, empty,
+  missing (counts as full), `"small"`, `small   # a comment` and a CRLF file all pass, and
+  only `small` is marked "(small)"; `Small`, `medium`, `small#x` refused ("✗ T-0001-a.md:
+  size "Small" isn't small/full", exit 1, no index written). `'small'` in single quotes is
+  refused too; the front matter parser treats `status` the same way, so it is consistent,
+  not new.
+- **Dockerfile pins (`readPins`):** a plain tag, `v0.40.6`, `ARG X=0.40.6` with `${X}`,
+  `ARG X="0.40.6"` with `$X`, `${X:-0.40.6}`, tag plus digest, a registry with a port,
+  `--platform=` and `AS`, CRLF with a commented-out `FROM`, and a line continuation all read
+  0.40.6. A digest only, `latest`, no tag, `ARG` with no default and no `FROM` are refused
+  with a message that says what to pin. `ARG X='0.40.6'` (single quotes) is refused ("pins no
+  PocketBase version"), not misread. Go: `golang:1.25.3-alpine` → 1.25.3,
+  `ARG GO_VERSION=1.25` with `golang:${GO_VERSION}-alpine` → 1.25,
+  `docker.io/library/golang:1.24.2` → 1.24.2; `golang`, `golang:alpine`, `golang:1-alpine`
+  and a `main.go` without a golang image refused.
+- **`harness backend` live, in a project whose path has spaces:** `stop` with nothing
+  running: "No throwaway backend runs for this project.", exit 0; `status` and `smoke` with
+  nothing running exit 1 with a plain message; `start` downloaded PocketBase 0.40.6 and jq
+  1.8.2 into the per-user cache and started; `smoke`: "All smoke tests passed."; a second
+  `start` while running stopped the first (its process gone) and started a fresh one on a new
+  port; `stop` twice: stopped, then "No throwaway backend runs"; no PocketBase process left;
+  `git status --porcelain --ignored` empty after start, smoke and stop.
+- **A Go backend** (a minimal `main.go`, `ARG GO_VERSION=1.25`): downloaded Go 1.25.14,
+  "Building backend/main.go with Go 1.25.14", started, status, stopped; the repository
+  untouched.
+- **A checksum mismatch** (the PocketBase zip corrupted in a download wrapper, empty cache):
+  "✗ pocketbase_0.40.6_windows_amd64.zip: the checksum doesn't match (expected 33a2a1d2…,
+  got 6889179c…); nothing was installed", exit 1, the cache's `tools` folder empty.
+- **`ci.yml`:** parses as YAML (jobs `checks`, `shards`, `e2e`; `e2e-shards` a number,
+  default 1). The shard list from `seq -s, 1 N`: 1 → `[1]` (and `shards` is skipped, the
+  tests run in the checks job), 2 → `[1,2]`, 4 → `[1,2,3,4]`, 0 and -1 → the shards job is
+  skipped and the tests run in the checks job; 2.5 gives `[1,2]` with `--shard=1/2.5`, which
+  Playwright refuses, so it fails loudly. A string is refused by GitHub's input type. The
+  flaky check reads the `github` reporter's summary, which the project's CI uses; the unit
+  test covers both reporters. The required check is still only `checks / checks`, but the
+  auto-merge workflow merges only a run whose conclusion is success, so a failing shard
+  stops the merge.
+- **The agent definitions and rules** against the Accepted global decisions: they follow
+  G-0031 (sizing, no design before a small task, the review after, CI as the full run, a
+  send-back re-checks what was sent back, never ready on a retry) and G-0032; nothing still
+  names G-0008 as current; nothing contradicts G-0009, G-0011, G-0015, G-0019 or G-0026.
+- **The record:** status Doing, `result` holds this pull request, the developer's Log line
+  is there; nothing visible, so no UX review.
+
+## Second run, after the send-back (21575db)
+
+**Verdict: passed.** Re-checked what was sent back and the new parts only (G-0031).
+
+- `gh pr checks 22` (run 45069865479): `checks / checks` pass (1m3s), `template-e2e` pass
+  (1m34s), `template-backend / image` pass; `shards`, `e2e` and `publish` skipping. Its log:
+  `ℹ tests 282`, `ℹ pass 282`, `ℹ fail 0`, `ℹ skipped 0`; "✓ self-test passed: 34 steps";
+  template-e2e "✓ self-test passed: 36 steps"; no "flaky", no "Retry #".
+- `pnpm test` (Windows, frozen install): `ℹ tests 282`, `ℹ pass 281`, `ℹ fail 0`,
+  `ℹ skipped 1` (jq on the PATH, as before).
+- `node bin/harness.mjs check`: "✓ tasks: 11 tasks, index in step", "✓ global decisions: 32
+  records, index complete", "✓ agents: 4 definitions", "✓ skills: 1 skill".
+
+**The real-project timing, again: met.** The same procedure in the same project (a
+throwaway draft pull request pinned to 21575db, `e2e-shards: 4`, `harness sync`,
+`harness check` passing; closed and its branch deleted afterwards), CI run 45070196125:
+
+| | before (same as above) | with 4 shards |
+| --- | --- | --- |
+| end-to-end, wall clock | 12m45s | 6m11s from the first job's start (21:06:28) to the last's end (21:12:39) |
+| shards job (builds the backend once) | | 1m39s, with a cold cache ("Cache not found" for the backend's toolchain): "Building backend/main.go with Go 1.27.4" |
+| e2e jobs | | 2m58s, 3m3s, 3m14s, 4m29s |
+| tests per job (phone + production) | 162 in one | 33+8, 33+8, 32+8, 32+8: all passed |
+
+6m11s is 49% of 12m45s, with a cold Go cache; with a warm one the developer measured 4m24s
+(35%). The margin is thin when cold: shard 4's phone part took 2.4m where the others took
+46s to 1.1m. Every shard started its own throwaway backend from the program the shards job
+built ("The throwaway backend is at http://127.0.0.1:8090, for http://localhost:4174" in
+each, and no Docker image build in the run). 0 "flaky" lines, 0 "Retry #" lines.
+
+**What I tried to break in the new parts**
+
+- `harness backend build`: no file → "✗ harness backend build needs the file to write",
+  exit 1; two files → usage, exit 1; a folder that doesn't exist yet and has spaces in its
+  name → created, `backend.exe` written (`.exe` added on Windows); onto an existing folder →
+  "✗ EISDIR", exit 1, nothing else changed; no `backend/Dockerfile` → "✗ no
+  backend/Dockerfile: this project has no backend". A Go backend built to a file, then
+  started from it with `HARNESS_BACKEND_BINARY`, and stopped; the repository untouched
+  (`git status --porcelain --ignored` empty). A PocketBase build, started from the file,
+  passed `harness backend smoke` ("All smoke tests passed."). `HARNESS_BACKEND_BINARY`
+  naming a missing file → "✗ HARNESS_BACKEND_BINARY names …, which doesn't exist", exit 1.
+- The `-e` passthrough (`throwawayEnv`): `-e A=1`, `--env B=two`, `--env=F=six`, `-e H=a=b`
+  and `-e` after a line continuation are read; a commented-out `docker run`, `echo docker run`
+  and `docker exec` lines are ignored. Left out, as the code says: `-e C="$X"` (a value from
+  a shell variable) and a line that starts with a variable assignment before `docker run`.
+  `-e D` with no value passes D on anyway, because the backend inherits the environment. The
+  project's `throwaway.sh` sets only literal values (four outside addresses pointed at a
+  closed port), which are read.
 
 # Log
 
 - 2026-11-23 architect: raised after the Engineer asked why the first project took so long;
   G-0031 (replacing G-0008) and G-0032 drafted for the Engineer; offline-first stays.
+- 2026-11-23 architect: started after the Engineer merged G-0031 and G-0032 (#21); nothing visible, so no UX designer; to the developer.
+- 2026-11-23 developer: built all four parts in one draft pull request (one task file and one
+  README, so no conflicts between parts): `size: small | full` in the task template, refused
+  by `check` and `tasks-index` when unknown, missing counts as full, the index marks
+  `(small)`; the four agents and the rules per G-0031; `harness backend [start|status|smoke|stop]`
+  per G-0032 (PocketBase or Go from `backend/Dockerfile`, jq 1.8.2, checksums checked, per-user
+  cache, state outside the repository); `ci.yml` gains `e2e-shards` and `e2e-build`, and fails
+  a run with a flaky test. Version 0.9.0. On Windows: `pnpm test` 279 tests, 278 pass, 0 fail,
+  1 skipped (needs jq on the PATH, as before); `pnpm run self-test` "✓ self-test passed: 34
+  steps, harness 0.9.0 in a throwaway project", step 32 starting a backend with a failing
+  `docker` first on the PATH and passing "All smoke tests passed."; `node bin/harness.mjs check`
+  all ✓. Also by hand on Windows: a Go backend (`FROM golang:${GO_VERSION}-alpine`, 1.25)
+  downloaded Go 1.25.14, built and started. Not yet measured: the CI time with shards in a real
+  project (the template's CI sets no `e2e-shards`); the tester or the Engineer needs a project
+  with a real suite for the *Done when* timing.
+- 2026-11-23 tester: sent back: in a project with 162 end-to-end tests, four shards took
+  9m54s against 12m45s before (78%, not at most half): each shard repeats a three-minute
+  backend image build, and the shards split by file are uneven (4.1m to 9.1m). Everything
+  else passed: CI green with no retries, `pnpm test`, `pnpm run self-test`, `harness check`,
+  and the attempts to break size, `harness backend` and `ci.yml`; see *Test*.
+- 2026-11-23 developer: fixed what the tester sent back. The shards job now builds the backend
+  once (`harness backend build`, new; Go's toolchain and build cache cached) and hands the
+  program on as an artifact; each e2e job starts it with `harness backend`
+  (`HARNESS_BACKEND_BINARY`, new; the `-e` settings of `throwaway.sh`'s `docker run` passed on,
+  new) and sets `BACKEND_TEST_URL`, so no job builds an image; tests are split by test
+  (`--fully-parallel`) and each Playwright project is sharded on its own (Playwright shards in
+  order, so the slow backend project had all landed in the last shard); new input
+  `e2e-backend-origin`. Tried again in the same project (throwaway draft pull request, 4
+  shards, closed and its branch deleted): first run, cold Go cache and before the per-project
+  split, 8m34s (shard 4 6m59s, all 40 backend tests in it); second run 4m24s from the first
+  job's start to the last's end (shards job 33s, e2e jobs 2m54s to 3m49s; 33+8, 33+8, 32+8,
+  32+8 tests, all passed, no flaky, no retry): 35% of 12m45s. With a cold Go cache the shards
+  job took 1m32s, so about 5m25s. `pnpm test` 282 tests, 281 pass, 0 fail, 1 skipped;
+  `pnpm run self-test` "✓ self-test passed: 34 steps, harness 0.9.0 in a throwaway project";
+  `node bin/harness.mjs check` all ✓.
+- 2026-11-23 tester: passed after the send-back: in the same project four shards took 6m11s
+  against 12m45s (49%, with a cold Go cache), every shard on its own backend from one build,
+  all 162 tests passed with no flaky test or retry; CI green with no retries, `pnpm test`,
+  `harness check`, and the attempts to break `harness backend build` and the `-e` settings;
+  see *Test*.

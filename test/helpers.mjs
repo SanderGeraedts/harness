@@ -26,12 +26,13 @@ export function tempProject() {
   return dir;
 }
 
-export const task = ({ id = 'T-0001', title = 'Do the thing', status = 'Open', doneOn = '', log = '' } = {}) => `---
+export const task = ({ id = 'T-0001', title = 'Do the thing', status = 'Open', size, doneOn = '', log = '' } = {}) => `---
 id: ${id}
 title: "${title}"
 description: "One sentence about ${title.toLowerCase()}."
 status: ${status}            # Open | Doing | Done | Dropped
-depends_on: []
+${size === undefined ? '' : `size: ${size}            # small | full
+`}depends_on: []
 decisions: []
 raised_on: 2026-01-02
 done_on: "${doneOn}"

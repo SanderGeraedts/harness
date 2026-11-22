@@ -15,7 +15,11 @@
 #     checks:
 #       uses: SanderGeraedts/harness/.github/workflows/ci.yml@vX.Y.Z
 #
-# It installs with pnpm, runs `harness check`, then the project's own checks.
+# It installs with pnpm, runs `harness check`, then the project's own checks, then the
+# end-to-end tests: in the same job, or, with e2e-shards above 1, split over that many
+# parallel jobs (Playwright's --shard), each on its own machine and so with its own
+# throwaway backend, started from a program built once (harness backend). A test that
+# passed only on a retry fails the run (G-0031).
 name: CI (reusable)
 
 on:
@@ -37,9 +41,29 @@ on:
           pnpm run --if-present test
           pnpm run --if-present build
       e2e:
-        description: The end-to-end test command. When set, Playwright's Chromium is installed first.
+        description: >-
+          The end-to-end test command. When set, Playwright's Chromium is installed first.
+          With e2e-shards above 1 it gets --shard=<i>/<n> at its end.
         type: string
         default: ""
+      e2e-shards:
+        description: >-
+          The number of parallel jobs the end-to-end tests are split over. 1 runs them in the
+          checks job, after the project's checks.
+        type: number
+        default: 1
+      e2e-build:
+        description: >-
+          What each end-to-end job runs before its tests, with e2e-shards above 1: the build
+          the checks job made is on another machine.
+        type: string
+        default: pnpm run --if-present build
+      e2e-backend-origin:
+        description: >-
+          The origin the throwaway backend answers (CORS), with e2e-shards above 1: the
+          address the end-to-end tests serve the production build on.
+        type: string
+        default: http://localhost:4174
       artifacts:
         description: >-
           Paths to upload as an artifact, one per line. By default whether the job passed or
@@ -78,19 +102,50 @@ jobs:
       # The runner image already has the system libraries Chromium needs, so no
       # `--with-deps`: its package install took from 30 seconds to over six minutes.
       - name: Cache the browser
-        if: inputs.e2e != ''
+        if: inputs.e2e != '' && inputs.e2e-shards < 2
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
       - name: Install the browser
-        if: inputs.e2e != ''
+        if: inputs.e2e != '' && inputs.e2e-shards < 2
         run: pnpm exec playwright install chromium
 
+      # Playwright counts a test that passed only on a retry as flaky and still exits 0, so
+      # its summary is read: a flaky test fails the job (G-0031). The same script as below.
       - name: End-to-end tests
-        if: inputs.e2e != ''
-        run: ${{ inputs.e2e }}
+        if: inputs.e2e != '' && inputs.e2e-shards < 2
+        shell: bash
+        env:
+          E2E: ${{ inputs.e2e }}
+          SHARD: ""
+        run: |
+          command=$(printf '%s' "$E2E")
+          set -o pipefail
+          log="$RUNNER_TEMP/e2e.log"
+          : > "$log"
+          failed=0
+          # In a shard, each Playwright project is split on its own: Playwright shards the
+          # tests in order, so a slow project would otherwise all land in the last shard.
+          projects=""
+          if [ -n "$SHARD" ]; then
+            projects=$(eval "$command --list --reporter=json" 2>/dev/null |
+              node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => { try { for (const p of JSON.parse(s.slice(s.indexOf("{"))).config.projects) console.log(p.name) } catch {} })') || projects=""
+          fi
+          if [ -n "$projects" ]; then
+            while IFS= read -r project; do
+              eval "$command $SHARD --pass-with-no-tests --project=\"\$project\"" 2>&1 | tee -a "$log" || failed=1
+            done <<< "$projects"
+          else
+            eval "$command $SHARD" 2>&1 | tee -a "$log" || failed=1
+          fi
+          if sed -E -e 's/\x1b\[[0-9;]*m//g' -e 's/^::[a-z]+( [^:]*)?::/\n/' -e 's/%0A/\n/g' "$log" |
+            grep -Eq '^[[:space:]]*[0-9]+ flaky[[:space:]]*$'; then
+            echo "::error::A test passed only on a retry. Make it steady instead: a retry must not hide it (G-0031)."
+            exit 1
+          fi
+          exit "$failed"
 
       - name: Upload artifacts
         if: >-
@@ -99,6 +154,154 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.artifact-name }}
+          path: ${{ inputs.artifacts }}
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # Once, before the end-to-end jobs: the numbers of the jobs, for their matrix
+  # ([1,2,...,e2e-shards]), and, when the project has a backend, its program
+  # (harness backend build, G-0032), so no end-to-end job builds it again.
+  shards:
+    if: inputs.e2e != '' && inputs.e2e-shards > 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      list: ${{ steps.list.outputs.list }}
+      backend: ${{ steps.backend.outputs.built }}
+    steps:
+      - id: list
+        env:
+          SHARDS: ${{ inputs.e2e-shards }}
+        run: echo "list=[$(seq -s, 1 "$SHARDS")]" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: ${{ inputs.node-version-file }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # The toolchain, Go's modules and its build cache: a backend that didn't change builds
+      # in seconds.
+      - name: Cache the backend's toolchain
+        if: hashFiles('backend/Dockerfile') != ''
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/harness
+          key: harness-backend-${{ runner.os }}-${{ hashFiles('backend/Dockerfile', 'backend/go.sum') }}-${{ hashFiles('backend/**') }}
+          restore-keys: harness-backend-${{ runner.os }}-${{ hashFiles('backend/Dockerfile', 'backend/go.sum') }}-
+
+      - name: Build the backend once
+        id: backend
+        if: hashFiles('backend/Dockerfile') != ''
+        run: |
+          ${{ inputs.harness }} backend build "$RUNNER_TEMP/e2e-backend/backend"
+          echo "built=true" >> "$GITHUB_OUTPUT"
+
+      - name: Hand the backend to the end-to-end jobs
+        if: steps.backend.outputs.built == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-backend
+          path: ${{ runner.temp }}/e2e-backend/backend
+          retention-days: 1
+
+  # One part of the end-to-end tests per job, side by side with the checks job, split by
+  # test rather than by file (--fully-parallel) so the parts take about as long. Each starts
+  # its own throwaway backend from the program the shards job built, and gives its address
+  # in BACKEND_TEST_URL, so the tests' own setup starts none. A failing part fails the run,
+  # and the auto-merge workflow merges only a run that passed as a whole.
+  e2e:
+    needs: shards
+    name: e2e ${{ matrix.shard }}/${{ inputs.e2e-shards }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.shards.outputs.list) }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: ${{ inputs.node-version-file }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Take the backend the shards job built
+        if: needs.shards.outputs.backend == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: e2e-backend
+          path: ${{ runner.temp }}/e2e-backend
+
+      - name: Start the throwaway backend
+        if: needs.shards.outputs.backend == 'true'
+        env:
+          HARNESS_BACKEND_BINARY: ${{ runner.temp }}/e2e-backend/backend
+          BACKEND_TEST_PORT: "8090"
+          APP_ORIGIN: ${{ inputs.e2e-backend-origin }}
+        run: |
+          ${{ inputs.harness }} backend start
+          echo "BACKEND_TEST_URL=http://127.0.0.1:8090" >> "$GITHUB_ENV"
+
+      - name: Build
+        if: inputs.e2e-build != ''
+        run: ${{ inputs.e2e-build }}
+
+      - name: Cache the browser
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Install the browser
+        run: pnpm exec playwright install chromium
+
+      - name: End-to-end tests
+        shell: bash
+        env:
+          E2E: ${{ inputs.e2e }}
+          SHARD: --shard=${{ matrix.shard }}/${{ inputs.e2e-shards }} --fully-parallel
+        run: |
+          command=$(printf '%s' "$E2E")
+          set -o pipefail
+          log="$RUNNER_TEMP/e2e.log"
+          : > "$log"
+          failed=0
+          # In a shard, each Playwright project is split on its own: Playwright shards the
+          # tests in order, so a slow project would otherwise all land in the last shard.
+          projects=""
+          if [ -n "$SHARD" ]; then
+            projects=$(eval "$command --list --reporter=json" 2>/dev/null |
+              node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => { try { for (const p of JSON.parse(s.slice(s.indexOf("{"))).config.projects) console.log(p.name) } catch {} })') || projects=""
+          fi
+          if [ -n "$projects" ]; then
+            while IFS= read -r project; do
+              eval "$command $SHARD --pass-with-no-tests --project=\"\$project\"" 2>&1 | tee -a "$log" || failed=1
+            done <<< "$projects"
+          else
+            eval "$command $SHARD" 2>&1 | tee -a "$log" || failed=1
+          fi
+          if sed -E -e 's/\x1b\[[0-9;]*m//g' -e 's/^::[a-z]+( [^:]*)?::/\n/' -e 's/%0A/\n/g' "$log" |
+            grep -Eq '^[[:space:]]*[0-9]+ flaky[[:space:]]*$'; then
+            echo "::error::A test passed only on a retry. Make it steady instead: a retry must not hide it (G-0031)."
+            exit 1
+          fi
+          exit "$failed"
+
+      - name: Stop the throwaway backend
+        if: always() && needs.shards.outputs.backend == 'true'
+        run: ${{ inputs.harness }} backend stop
+
+      - name: Upload artifacts
+        if: >-
+          always() && inputs.artifacts != '' &&
+          (failure() || !inputs.artifacts-only-on-failure)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}-e2e-${{ matrix.shard }}
           path: ${{ inputs.artifacts }}
           if-no-files-found: ignore
           retention-days: 7

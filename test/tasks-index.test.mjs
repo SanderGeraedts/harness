@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
 import { parse } from '../lib/frontmatter.mjs';
@@ -73,6 +73,38 @@ describe('tasks-index', () => {
     assert.equal(main(['--check'], dir), 1);
     writeIndex(tasksDir);
     assert.equal(main(['--check'], dir), 0);
+  });
+
+  it("reads a task's size: small or full, and full when it has none (G-0031)", () => {
+    const dir = tempDir();
+    write(dir, 'T-0001-a.md', task({ id: 'T-0001', title: 'Small', size: 'small' }));
+    write(dir, 'T-0002-b.md', task({ id: 'T-0002', title: 'Full', size: 'full' }));
+    write(dir, 'T-0003-c.md', task({ id: 'T-0003', title: 'Older' }));
+    write(dir, 'T-0004-d.md', task({ id: 'T-0004', title: 'Empty', size: '""' }));
+    const { tasks, problems } = readTasks(dir);
+    assert.deepEqual(problems, []);
+    assert.deepEqual(tasks.map((t) => t.size), ['small', 'full', 'full', 'full']);
+    const index = renderIndex(tasks);
+    assert.match(index, /^- \[T-0001 Small\]\(T-0001-a\.md\) \(small\): /m);
+    assert.match(index, /^- \[T-0002 Full\]\(T-0002-b\.md\): /m);
+    assert.match(index, /^- \[T-0003 Older\]\(T-0003-c\.md\): /m);
+  });
+
+  it('refuses a size it does not know, in --check and when writing the index', () => {
+    const dir = tempDir();
+    write(dir, 'docs/tasks/T-0001-a.md', task({ size: 'medium' }));
+    assert.deepEqual(readTasks(join(dir, 'docs/tasks')).problems, ['T-0001-a.md: size "medium" isn\'t small/full']);
+    assert.equal(main([], dir), 1);
+    assert.equal(existsSync(join(dir, 'docs/tasks/index.md')), false, 'nothing is written');
+    assert.equal(main(['--check'], dir), 1);
+    write(dir, 'docs/tasks/T-0001-a.md', task({ size: 'small' }));
+    assert.equal(main([], dir), 0);
+    assert.equal(main(['--check'], dir), 0);
+  });
+
+  it('the task template has a size, full by default', () => {
+    const { fields } = parse(readFileSync(join(HARNESS_ROOT, 'templates/task.md'), 'utf8'));
+    assert.equal(fields.size, 'full');
   });
 
   it('takes another directory', () => {

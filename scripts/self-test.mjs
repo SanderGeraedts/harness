@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -118,6 +118,24 @@ try {
     '\n- [D-0001 Plain CSS instead of a framework](D-0001-plain-css-instead-of-a-framework.md): no framework.\n- [Q-001 Which colours?](Q-001-which-colours.md): the palette.\n',
   );
   assert.match(ok(`${harness} check`), /✓ decisions: 2 records, index complete, 1 overrule valid/);
+
+  step('harness check and tasks-index refuse a task size they do not know, and the index marks a small task');
+  const taskFile = 'docs/tasks/T-0001-show-a-greeting.md';
+  const sized = get(taskFile);
+  assert.match(sized, /^size: full /m, 'the template gives a task a size');
+  put(taskFile, sized.replace(/^size: full/m, 'size: medium'));
+  fails(`${harness} tasks-index`, /✗ T-0001-show-a-greeting\.md: size "medium" isn't small\/full/);
+  fails(`${harness} check`, /✗ tasks: T-0001-show-a-greeting\.md: size "medium" isn't small\/full/);
+  put(taskFile, sized.replace(/^size: full/m, 'size: small'));
+  ok(`${harness} tasks-index`);
+  assert.match(get('docs/tasks/index.md'), /- \[T-0001 Show a greeting\]\(T-0001-show-a-greeting\.md\) \(small\): /);
+  // A task written before sizes existed counts as full.
+  put(taskFile, sized.replace(/^size: full.*\n/m, ''));
+  ok(`${harness} tasks-index`);
+  assert.match(get('docs/tasks/index.md'), /- \[T-0001 Show a greeting\]\(T-0001-show-a-greeting\.md\): /);
+  put(taskFile, sized);
+  ok(`${harness} tasks-index`);
+  ok(`${harness} check`);
 
   step('harness overrules');
   const overrules = ok(`${harness} overrules`);
@@ -507,6 +525,59 @@ console.log('code', await main(['down', 'spun-up'], process.cwd(), { getLogin: (
   ok('pnpm exec vite build --outDir dist-no-address', { ...syncs.in, env: { BACKEND_URL: '', CONTEXT: 'production' } });
   assert.ok(!served(join(syncs.dir, 'dist-no-address')).includes(client), 'a production build without an address holds the backend client');
   assert.equal(ok('git status --porcelain', syncs.in).trim(), '', 'the builds are ignored by git');
+
+  step('harness backend starts a throwaway backend without Docker that the smoke test passes against, and stops it; and from a program built once');
+  {
+    // A docker that fails loudly comes first on the PATH: harness backend must never call it.
+    const fakeBin = join(work, 'no-docker');
+    mkdirSync(fakeBin);
+    writeFileSync(join(fakeBin, 'docker'), '#!/bin/sh\necho "docker was called" >&2\nexit 99\n', { mode: 0o755 });
+    writeFileSync(join(fakeBin, 'docker.cmd'), '@echo docker was called 1>&2\r\n@exit /b 99\r\n');
+    const pathKey = Object.keys(process.env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH';
+    const env = { [pathKey]: `${fakeBin}${delimiter}${process.env[pathKey]}`, HARNESS_CACHE_DIR: join(work, 'cache'), BACKEND_TEST_PORT: '', APP_ORIGIN: '' };
+    fails('docker info', /docker was called/, { ...syncs.in, env });
+    const started = ok(`${harness} backend start`, { ...syncs.in, env });
+    const url = started.match(/The throwaway backend is at (http:\/\/127\.0\.0\.1:\d+), for https:\/\/app\.example/)?.[1];
+    assert.ok(url, started);
+    assert.doesNotMatch(started, /docker was called/);
+    assert.match(ok(`${harness} backend status`, { ...syncs.in, env }), new RegExp(`at ${url.replaceAll('.', '\\.')}`));
+    const smoked = ok(`${harness} backend smoke`, { ...syncs.in, env });
+    assert.match(smoked, /All smoke tests passed\./);
+    assert.match(ok(`${harness} backend stop`, { ...syncs.in, env }), /stopped, and its database removed/);
+    fails(`${harness} backend status`, /No throwaway backend runs/, { ...syncs.in, env });
+    assert.equal(ok('git status --porcelain', syncs.in).trim(), '', 'harness backend wrote into the repository');
+    // The second start takes everything from the cache.
+    assert.doesNotMatch(ok(`${harness} backend`, { ...syncs.in, env }), /Downloading/);
+    ok(`${harness} backend stop`, { ...syncs.in, env });
+    // Built once and handed on, as CI's shards job does: started from the file alone.
+    const built = ok(`${harness} backend build "${join(work, 'handed', 'backend')}"`, { ...syncs.in, env });
+    const handed = built.match(/Wrote the backend program to (.+)/)?.[1]?.trim();
+    assert.ok(handed && existsSync(handed), built);
+    const fromFile = { ...env, HARNESS_BACKEND_BINARY: handed, HARNESS_CACHE_DIR: join(work, 'cache-2') };
+    assert.match(ok(`${harness} backend start`, { ...syncs.in, env: fromFile }), /The throwaway backend is at http:\/\/127\.0\.0\.1:\d+/);
+    assert.match(ok(`${harness} backend smoke`, { ...syncs.in, env: fromFile }), /All smoke tests passed\./);
+    ok(`${harness} backend stop`, { ...syncs.in, env: fromFile });
+    assert.deepEqual(readdirSync(join(work, 'cache-2', 'tools')).filter((f) => !f.startsWith('jq-')), [], 'the handed program was downloaded again');
+    fails(`${harness} backend`, /no backend\/Dockerfile: this project has no backend/, { ...local.in, env });
+  }
+
+  step('the reusable CI workflow parses, and its end-to-end step fails a run that passed only on a retry');
+  {
+    const { parse } = await import('yaml');
+    const doc = parse(readFileSync(join(root, '.github', 'workflows', 'ci.yml'), 'utf8'));
+    assert.equal(doc.on.workflow_call.inputs['e2e-shards'].default, 1);
+    const script = doc.jobs.checks.steps.find((s) => s.name === 'End-to-end tests').run;
+    assert.equal(script, doc.jobs.e2e.steps.find((s) => s.name === 'End-to-end tests').run);
+    const fake = join(work, 'fake-e2e.mjs');
+    writeFileSync(fake, "process.stdout.write(process.env.FAKE_OUT.replaceAll('|', '\\n'));\n");
+    const slash = (p) => p.replaceAll('\\', '/');
+    const e2e = (out) =>
+      spawnSync('bash', ['-eo', 'pipefail', '-c', script], { encoding: 'utf8', env: { ...process.env, E2E: `node "${slash(fake)}"`, SHARD: '', RUNNER_TEMP: slash(work), FAKE_OUT: out } });
+    assert.equal(e2e('  3 passed (2.0s)|').status, 0);
+    const flaky = e2e('  1 flaky|    [phone] › a|  2 passed (2.0s)|');
+    assert.equal(flaky.status, 1);
+    assert.match(flaky.stdout, /::error::A test passed only on a retry/);
+  }
 
   step('neither project holds an address, a network name, a storage path or a key');
   for (const project of [syncs, local]) {

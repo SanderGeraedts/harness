@@ -9,6 +9,9 @@ const USAGE = `harness <command>
   overrules                      list the project decisions that overrule global ones
   changes <fromTag> [toTag]      global decisions added, changed or replaced between two versions
   waiting [dir...]               what waits on a human, for this or several project folders
+  backend [start|status|smoke|stop|build <file>]
+                                 a throwaway backend from the versions backend/Dockerfile
+                                 pins, without Docker; smoke runs the smoke test against it
   sync                           copy or refresh the files the harness generates in a project
   init [login...] [--default-branch <name>]
                                  set an existing repository up, with these Engineers
@@ -35,6 +38,7 @@ const COMMANDS = {
   overrules: () => import('../lib/overrules.mjs').then((m) => m.main),
   changes: () => import('../lib/changes.mjs').then((m) => m.main),
   waiting: () => import('../lib/waiting.mjs').then((m) => m.main),
+  backend: () => import('../lib/backend.mjs').then((m) => m.main),
   sync: () => import('../lib/sync.mjs').then((m) => m.main),
   init: () => import('../lib/init.mjs').then((m) => m.main),
   adopt: () => import('../lib/adopt.mjs').then((m) => m.main),

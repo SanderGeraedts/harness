@@ -29,15 +29,19 @@ own (G-0002), and then the project's decision wins.
 
 ## The team
 
-Every task goes through the pipeline, in this order (G-0008). Each role writes its result
-in the task file and then hands over.
+Every task goes through the pipeline, in this order (G-0031). Each role writes its result
+in the task file and then hands over, and reads only the records and designs its task names.
 
-1. **Architect:** turns the request into a task with a *Done when* check, names the
-   decisions it follows, records new decisions, raises questions.
-2. **UX designer:** for anything a user sees. The design before it is built; a review after.
-3. **Developer:** builds it in a **draft** pull request.
-4. **Tester:** runs the task's check independently, tries to break it, writes the result in
-   the task file, and only then marks the pull request ready.
+1. **Architect:** turns the request into a task with a *Done when* check, sizes it
+   (`size: small | full`; when in doubt, full), names the decisions it follows, records new
+   decisions, raises questions.
+2. **UX designer:** for anything a user sees. For a full task the design before it is
+   built; for every task that changes what a user sees, a review after.
+3. **Developer:** builds it in a **draft** pull request, and runs locally what the change
+   touches. CI is the full run.
+4. **Tester:** reads CI's run instead of repeating it, runs the task's check and the new and
+   affected tests independently, tries to break it, writes the result in the task file, and
+   only then marks the pull request ready. Never on a run that passed only on a retry.
 
 A role doesn't do another role's work. The tester sends a failing task back to the
 developer instead of fixing it.
@@ -125,6 +129,9 @@ architect turns a lesson that repeats into a proposed rule change for the harnes
 - **Generated files** (`.claude/agents/`, `.claude/skills/`, `.githooks/pre-push`, the registry README and
   templates) come from `pnpm exec harness sync`. Don't edit them; change the harness. The
   one exception is the registry README's project section, between its two marker lines.
+- **A local throwaway backend comes from `pnpm exec harness backend`** (G-0032): the versions
+  `backend/Dockerfile` pins, from a per-user cache, without Docker. Never install software
+  system-wide.
 - **Only production reaches the real backend** (G-0019). Local development, tests and
   previews run on seeded demo data or a throwaway backend.
 - **No agent reads, prints or carries a secret** (G-0026). The infrastructure's secrets are

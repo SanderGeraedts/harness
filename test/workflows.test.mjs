@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
+import { parse as parseYaml } from 'yaml';
 import { HARNESS_ROOT, harnessVersion } from '../lib/paths.mjs';
 import { cleanUp, tempDir } from './helpers.mjs';
 
@@ -31,10 +32,116 @@ describe('the reusable CI workflow', () => {
 
   it('has the artifact inputs, with defaults that keep 0.1.0 callers as they were', () => {
     const found = inputs(ci);
-    assert.deepEqual(Object.keys(found), ['node-version-file', 'harness', 'checks', 'e2e', 'artifacts', 'artifact-name', 'artifacts-only-on-failure']);
+    assert.deepEqual(Object.keys(found), ['node-version-file', 'harness', 'checks', 'e2e', 'e2e-shards', 'e2e-build', 'e2e-backend-origin', 'artifacts', 'artifact-name', 'artifacts-only-on-failure']);
     assert.deepEqual(found.artifacts, { type: 'string', default: '' });
     assert.deepEqual(found['artifact-name'], { type: 'string', default: 'ci-artifacts' });
     assert.deepEqual(found['artifacts-only-on-failure'], { type: 'boolean', default: 'false' });
+  });
+
+  it('parses as YAML, and runs the end-to-end tests in the checks job unless e2e-shards is above 1', () => {
+    const doc = parseYaml(ci);
+    const input = doc.on.workflow_call.inputs;
+    assert.deepEqual([input['e2e-shards'].type, input['e2e-shards'].default], ['number', 1]);
+    assert.equal(input['e2e-build'].default, 'pnpm run --if-present build');
+    assert.deepEqual(Object.keys(doc.jobs), ['checks', 'shards', 'e2e']);
+    const inChecks = doc.jobs.checks.steps.filter((s) => /browser|End-to-end/.test(s.name ?? ''));
+    assert.equal(inChecks.length, 3);
+    for (const s of inChecks) assert.equal(s.if, "inputs.e2e != '' && inputs.e2e-shards < 2", s.name);
+    assert.equal(doc.jobs.shards.if, "inputs.e2e != '' && inputs.e2e-shards > 1");
+  });
+
+  it('with e2e-shards, runs one Playwright shard per job, each building first, none stopping the others', () => {
+    const { checks, shards, e2e } = parseYaml(ci).jobs;
+    assert.match(shards.steps[0].run, /seq -s, 1 "\$SHARDS"/);
+    assert.equal(e2e.needs, 'shards');
+    assert.equal(e2e.strategy['fail-fast'], false);
+    assert.equal(e2e.strategy.matrix.shard, '${{ fromJSON(needs.shards.outputs.list) }}');
+    const names = e2e.steps.map((s) => s.name ?? s.run ?? s.uses);
+    assert.deepEqual(names.slice(4), ['Take the backend the shards job built', 'Start the throwaway backend', 'Build', 'Cache the browser', 'Install the browser', 'End-to-end tests', 'Stop the throwaway backend', 'Upload artifacts']);
+    assert.equal(e2e.steps[2].with.cache, 'pnpm', 'pnpm is cached per shard');
+    const step = (job) => job.steps.find((s) => s.name === 'End-to-end tests');
+    assert.equal(step(e2e).env.SHARD, '--shard=${{ matrix.shard }}/${{ inputs.e2e-shards }} --fully-parallel', 'split by test, not by file');
+    assert.equal(step(checks).env.SHARD, '');
+    assert.equal(step(e2e).run, step(checks).run, 'the same script in both places');
+    assert.equal(e2e.steps.find((s) => s.name === 'Upload artifacts').with.name, '${{ inputs.artifact-name }}-e2e-${{ matrix.shard }}');
+  });
+
+  it('with e2e-shards, builds the backend once and hands it to every end-to-end job, which starts it instead of building', () => {
+    const { shards, e2e } = parseYaml(ci).jobs;
+    const at = (job, name) => job.steps.find((s) => s.name === name);
+    assert.deepEqual(shards.outputs, { list: '${{ steps.list.outputs.list }}', backend: '${{ steps.backend.outputs.built }}' });
+    const build = at(shards, 'Build the backend once');
+    assert.equal(build.id, 'backend');
+    assert.equal(build.if, "hashFiles('backend/Dockerfile') != ''");
+    assert.match(build.run, /^\$\{\{ inputs\.harness \}\} backend build "\$RUNNER_TEMP\/e2e-backend\/backend"\necho "built=true" >> "\$GITHUB_OUTPUT"\n$/);
+    assert.equal(at(shards, 'Cache the backend\'s toolchain').with.path, '~/.cache/harness');
+    const handed = at(shards, 'Hand the backend to the end-to-end jobs');
+    assert.equal(handed.if, "steps.backend.outputs.built == 'true'");
+    assert.deepEqual([handed.uses, handed.with.name, handed.with.path], ['actions/upload-artifact@v4', 'e2e-backend', '${{ runner.temp }}/e2e-backend/backend']);
+    const taken = at(e2e, 'Take the backend the shards job built');
+    assert.deepEqual([taken.if, taken.uses, taken.with.name, taken.with.path], ["needs.shards.outputs.backend == 'true'", 'actions/download-artifact@v4', 'e2e-backend', '${{ runner.temp }}/e2e-backend']);
+    const started = at(e2e, 'Start the throwaway backend');
+    assert.equal(started.if, "needs.shards.outputs.backend == 'true'");
+    assert.equal(started.env.HARNESS_BACKEND_BINARY, `${handed.with.path}`);
+    assert.equal(started.env.APP_ORIGIN, '${{ inputs.e2e-backend-origin }}');
+    assert.match(started.run, /backend start\necho "BACKEND_TEST_URL=http:\/\/127\.0\.0\.1:8090" >> "\$GITHUB_ENV"/);
+    assert.equal(started.env.BACKEND_TEST_PORT, '8090');
+    assert.equal(parseYaml(ci).on.workflow_call.inputs['e2e-backend-origin'].default, 'http://localhost:4174');
+    // Nothing in an end-to-end job builds an image or runs Docker.
+    assert.doesNotMatch(JSON.stringify(e2e), /docker|backend build/);
+    // The browser is cached per job, as in the checks job.
+    assert.equal(at(e2e, 'Cache the browser').with.key, at(parseYaml(ci).jobs.checks, 'Cache the browser').with.key);
+  });
+
+  it('fails the job when a test passed only on a retry, run with bash on sample Playwright output', { skip: spawnSync('bash', ['-c', 'command -v sed']).status !== 0 && 'needs bash' }, () => {
+    const script = parseYaml(ci).jobs.checks.steps.find((s) => s.name === 'End-to-end tests').run;
+    const slash = (p) => p.replaceAll('\\', '/');
+    const run = (output, { code = 0, shard = '', projects = '', failProject = '' } = {}) => {
+      const dir = tempDir();
+      writeFileSync(join(dir, 'out.txt'), output);
+      writeFileSync(
+        join(dir, 'playwright.mjs'),
+        [
+          "import { readFileSync } from 'node:fs';",
+          'const args = process.argv.slice(3);',
+          "if (args.includes('--list') && process.env.FAKE_PROJECTS) { console.log('> a pnpm header'); console.log(JSON.stringify({ config: { projects: process.env.FAKE_PROJECTS.split(',').map((name) => ({ name })) } })); process.exit(0); }",
+          "console.log('args:', args.join(' '));",
+          "process.stdout.write(readFileSync(process.argv[2], 'utf8'));",
+          `process.exit(process.env.FAKE_FAIL && args.includes(process.env.FAKE_FAIL) ? 1 : ${code});`,
+        ].join('\n'),
+      );
+      const r = spawnSync('bash', ['-eo', 'pipefail', '-c', script], {
+        encoding: 'utf8',
+        env: { ...process.env, E2E: `node "${slash(join(dir, 'playwright.mjs'))}" "${slash(join(dir, 'out.txt'))}"\n`, SHARD: shard, RUNNER_TEMP: slash(dir), FAKE_PROJECTS: projects, FAKE_FAIL: failProject },
+      });
+      return { status: r.status, out: `${r.stdout}${r.stderr}` };
+    };
+    const passed = run('Running 3 tests using 2 workers\n  ✓  1 [phone] › e2e/a.spec.ts:3:1 › 1 flaky looking title\n\n  3 passed (2.1s)\n');
+    assert.equal(passed.status, 0, passed.out);
+    // The list reporter, in colour.
+    const listed = run('  \u001b[33m  1 flaky\u001b[39m\n    [phone] › e2e/a.spec.ts:3:1 › a\n  \u001b[32m  2 passed\u001b[39m (3.0s)\n');
+    assert.equal(listed.status, 1, listed.out);
+    assert.match(listed.out, /::error::A test passed only on a retry/);
+    // The github reporter: one notice, its lines escaped, the count first.
+    assert.equal(run('::notice title=🎭 Playwright Run Summary::  1 flaky%0A    [phone] › a%0A  2 passed (3.0s)\n').status, 1);
+    assert.equal(run('::notice title=🎭 Playwright Run Summary::  1 failed%0A  4 flaky%0A  2 passed\n').status, 1);
+    assert.equal(run('::notice title=🎭 Playwright Run Summary::  5 passed (3.0s)\n').status, 0);
+    // A failing run fails, flaky or not; and a shard gets its argument at the end.
+    assert.equal(run('  1 failed\n', { code: 1 }).status, 1);
+    assert.match(run('  2 passed\n', { shard: '--shard=2/3' }).out, /^args: --shard=2\/3$/m);
+    assert.match(run('  2 passed\n').out, /^args: $/m);
+    // A shard splits each Playwright project on its own, and runs every one even when one fails.
+    const split = run('  2 passed\n', { shard: '--shard=2/3 --fully-parallel', projects: 'phone,production' });
+    assert.equal(split.status, 0, split.out);
+    assert.deepEqual(split.out.match(/^args: .*$/gm), [
+      'args: --shard=2/3 --fully-parallel --pass-with-no-tests --project=phone',
+      'args: --shard=2/3 --fully-parallel --pass-with-no-tests --project=production',
+    ]);
+    const oneFails = run('  2 passed\n', { shard: '--shard=1/2', projects: 'phone,production', failProject: '--project=phone' });
+    assert.equal(oneFails.status, 1);
+    assert.equal(oneFails.out.match(/^args: .*$/gm).length, 2, 'the second project ran too');
+    // Without a shard nothing is listed: the run is the one it was before.
+    assert.deepEqual(run('  2 passed\n', { projects: 'phone,production' }).out.match(/^args: .*$/gm), ['args: ']);
   });
 
   it('uploads under the given name, always or only after a failure', () => {

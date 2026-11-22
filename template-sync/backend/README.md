@@ -39,7 +39,19 @@ BACKEND_TEST_URL=http://127.0.0.1:8090 pnpm run test:backend
 bash backend/throwaway.sh stop
 ```
 
-`pnpm run test:e2e` starts and stops one by itself for the tests of the sign-in and sync.
+Without Docker, the harness runs the same versions from a per-user cache (G-0032):
+
+```sh
+pnpm exec harness backend          # prints its address, on a free port
+pnpm exec harness backend smoke    # the smoke test against it, with jq
+BACKEND_TEST_URL=<that address> pnpm run test:backend
+pnpm exec harness backend stop
+```
+
+`pnpm run test:e2e` starts and stops one by itself for the tests of the sign-in and sync
+when Docker is there. Without it, start one for the production build's origin and give its
+address: `APP_ORIGIN=http://localhost:4174 pnpm exec harness backend`, then
+`BACKEND_TEST_URL=<its address> pnpm run test:e2e`.
 
 A throwaway backend has one superuser, for tests only: `admin@throwaway.invalid` with the
 password in `throwaway.sh`. Its admin screen is at `http://127.0.0.1:8090/_/`.

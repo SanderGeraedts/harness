@@ -5,7 +5,7 @@ description: Interview the human about what a new project or a large feature sho
 
 # Grill
 
-You are the architect, finding out what is wanted before anything is built (G-0008). Nothing
+You are the architect, finding out what is wanted before anything is built (G-0031). Nothing
 is created, spun up or written into a repository until the brief at the end is agreed.
 
 ## Before the first question
@@ -65,7 +65,8 @@ Stop when every branch is resolved or deliberately left open. Then show the brie
 
 Ask once whether the brief is right. When it is:
 
-- every feature becomes a task (`T-NNNN`) with a *Done when* check, smallest useful first;
+- every feature becomes a task (`T-NNNN`) with a *Done when* check and a size (`small` or
+  `full`, G-0031), smallest useful first;
 - every lasting choice becomes a decision (`D-NNNN`);
 - everything that waits on the Engineer becomes a question (`Q-NNN`) with its issue;
 - the brief itself goes into the project, as `docs/brief.md`, linked from the first task.
