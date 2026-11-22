@@ -175,3 +175,18 @@ changes the *Done when* with the Engineer. The measured numbers are above.
   backend image build, and the shards split by file are uneven (4.1m to 9.1m). Everything
   else passed: CI green with no retries, `pnpm test`, `pnpm run self-test`, `harness check`,
   and the attempts to break size, `harness backend` and `ci.yml`; see *Test*.
+- 2026-11-23 developer: fixed what the tester sent back. The shards job now builds the backend
+  once (`harness backend build`, new; Go's toolchain and build cache cached) and hands the
+  program on as an artifact; each e2e job starts it with `harness backend`
+  (`HARNESS_BACKEND_BINARY`, new; the `-e` settings of `throwaway.sh`'s `docker run` passed on,
+  new) and sets `BACKEND_TEST_URL`, so no job builds an image; tests are split by test
+  (`--fully-parallel`) and each Playwright project is sharded on its own (Playwright shards in
+  order, so the slow backend project had all landed in the last shard); new input
+  `e2e-backend-origin`. Tried again in the same project (throwaway draft pull request, 4
+  shards, closed and its branch deleted): first run, cold Go cache and before the per-project
+  split, 8m34s (shard 4 6m59s, all 40 backend tests in it); second run 4m24s from the first
+  job's start to the last's end (shards job 33s, e2e jobs 2m54s to 3m49s; 33+8, 33+8, 32+8,
+  32+8 tests, all passed, no flaky, no retry): 35% of 12m45s. With a cold Go cache the shards
+  job took 1m32s, so about 5m25s. `pnpm test` 282 tests, 281 pass, 0 fail, 1 skipped;
+  `pnpm run self-test` "✓ self-test passed: 34 steps, harness 0.9.0 in a throwaway project";
+  `node bin/harness.mjs check` all ✓.
