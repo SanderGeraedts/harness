@@ -7,6 +7,7 @@ One file per task, from [_template.md](_template.md). Pick from *Open* a task wh
 ## Open
 
 - [T-0006 Tidy what the testers of T-0005 and T-0003 found](T-0006-tidy-what-the-testers-of-t-0005-and-t-0003-found.md): Small defects in adopt, init, create and the auto-merge workflow that the testers listed and that blocked neither task.
+- [T-0012 Make checks of what a user sees read the outcome in every state](T-0012-checks-read-the-outcome-in-every-state.md) (small): Build what G-0033 decides once the Engineer accepts it: the rules, the architect, developer and tester definitions and the task template ask for checks that read what is rendered or delivered, in every state the app passes through and at the device extremes, and for regression checks shown failing on a fresh build of the base branch; released as 0.10.0.
 
 ## Doing
 
